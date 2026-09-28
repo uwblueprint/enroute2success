@@ -1,0 +1,24 @@
+node_modules/
+dist/
+build/
+.env
+.env.*.local
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Prisma
+backend/generated/
+backend/prisma/dev.db
+backend/prisma/migrations/**/migration.sql.bak
+
+# Docker
+docker-compose.override.yml

@@ -1,0 +1,28 @@
+{
+  "name": "pern-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "React + Vite frontend for the PERN stack app",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "typecheck": "tsc -b",
+    "lint": "tsc -b"
+  },
+  "dependencies": {
+    "@apollo/client": "^4.3.1",
+    "graphql": "^16.11.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}
