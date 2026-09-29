@@ -9,9 +9,6 @@ services:
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
-      # Postgres 18+ expects a single mount at /var/lib/postgresql (it stores
-      # data in a major-version subdirectory below this), not the pre-18
-      # /var/lib/postgresql/data path.
       - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pern_user} -d ${POSTGRES_DB:-pern_db}"]
