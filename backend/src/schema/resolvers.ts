@@ -1,4 +1,4 @@
-import type { GraphQLContext } from "../context";
+import type { GraphQLContext } from '../context';
 
 export const resolvers = {
   Query: {
@@ -8,7 +8,7 @@ export const resolvers = {
         await ctx.prisma.$queryRaw`SELECT 1`;
         databaseConnected = true;
       } catch (err) {
-        console.error("[health] database check failed:", err);
+        console.error('[health] database check failed:', err);
       }
 
       return {
