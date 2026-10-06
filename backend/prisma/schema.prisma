@@ -8,3 +8,50 @@ generator client {
   provider = "prisma-client"
   output   = "../generated"
 }
+
+enum StaffType {
+  ADMIN @map("admin)
+  COACHES @map("coaches)
+  VOLUNTEER @map("volunteer)
+
+  @@map("staff_type")
+}
+
+model User {
+  id UUID String @id @db.Uuid
+  first_name String @map("first_name")
+  last_name String @map("last_name")
+  preferred_name String? @map("preferred_name) // Optional
+  email String @unique
+  phone_number String @map("phone_number)
+  password_hash String @map("password_hash)
+
+  created_at DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
+  updated_at updatedAt DateTime @updatedAt @db.Timestamptz(3) @map("updated_at")
+
+  // A user may or may not have a staff record.
+  staff StaffUser?
+
+  @@map("users")
+}
+
+model staff_users {
+  id UUID String @id @db.Uuid
+  staffType StaffType @map("type")
+
+  user User @relation(
+    fields: [id]
+    references: [id]
+    onDelete: Cascade
+  )
+
+  created_at DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
+  updated_at updatedAt DateTime @updatedAt @db.Timestamptz(3) @map("updated_at")
+
+  @@map("users")
+}
+
+model refresh_tokens {
+  id String @id @default(uuid()) @db.Uuid @map("id")
+  id UUID String @id @db.Uuid
+}
