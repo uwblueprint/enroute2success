@@ -10,48 +10,53 @@ generator client {
 }
 
 enum StaffType {
-  ADMIN @map("admin)
-  COACHES @map("coaches)
-  VOLUNTEER @map("volunteer)
+  ADMIN @map("admin")
+  COACHES @map("coaches")
+  VOLUNTEER @map("volunteer")
 
   @@map("staff_type")
 }
 
 model User {
-  id UUID String @id @db.Uuid
+  id String @id @db.Uuid
   first_name String @map("first_name")
   last_name String @map("last_name")
-  preferred_name String? @map("preferred_name) // Optional
+  preferred_name String? @map("preferred_name") // Optional
   email String @unique
-  phone_number String @map("phone_number)
-  password_hash String @map("password_hash)
+  phone_number String @map("phone_number")
+  password_hash String @map("password_hash")
 
-  created_at DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
-  updated_at updatedAt DateTime @updatedAt @db.Timestamptz(3) @map("updated_at")
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt 
 
   // A user may or may not have a staff record.
-  staff StaffUser?
+  staff StaffUsers?
+
+  refreshTokens refresh_tokens[]
 
   @@map("users")
 }
 
-model staff_users {
-  id UUID String @id @db.Uuid
+model StaffUsers {
+  id String @id @db.Uuid
   staffType StaffType @map("type")
 
-  user User @relation(
-    fields: [id]
-    references: [id]
-    onDelete: Cascade
-  )
+  user User @relation(fields: [id], references: [id], onDelete: Cascade)
 
-  created_at DateTime @default(now()) @db.Timestamptz(3) @map("created_at")
-  updated_at updatedAt DateTime @updatedAt @db.Timestamptz(3) @map("updated_at")
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt 
 
-  @@map("users")
+  @@map("staff_users")
 }
 
 model refresh_tokens {
-  id String @id @default(uuid()) @db.Uuid @map("id")
-  id UUID String @id @db.Uuid
+  id String @id @db.Uuid
+  user_id String @db.Uuid
+  token_hash String @unique @db.VarChar
+  expires_at DateTime  @db.Timestamp(3)
+  revoked_at DateTime? @db.Timestamp(3)
+  created_at DateTime @default(now()) @map("created_at")
+  updated_at DateTime @updatedAt 
+
+  user User @relation(fields: [user_id], references: [id])
 }
