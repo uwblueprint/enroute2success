@@ -30,11 +30,13 @@ export const typeDefs = `#graphql
   type Query {
     "Basic wiring check: server + database connectivity."
     health: HealthStatus!
-    "Sessions for a calendar month, optionally filtered by status."
+    "Sessions for a calendar month, optionally filtered by status. Omit month+year for the current month."
     sessions(
       month: Int
       year: Int
       sessionStatuses: [SessionStatus!]
     ): [Session!]!
+    "A single session by id. Returns a NOT_FOUND error if no session matches."
+    session(id: ID!): Session!
   }
 `;
