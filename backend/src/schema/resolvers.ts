@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { GraphQLError } from 'graphql';
 import { UUIDResolver } from 'graphql-scalars';
-import { StaffType as PrismaStaffType } from '../../generated/client';
+import { Prisma, StaffType as PrismaStaffType } from '../../generated/client';
 import type { User, StaffUsers, session, session_status } from '../../generated/client';
 import type { GraphQLContext } from '../context';
 import { currentLocalMonthYear, monthRangeUtc } from '../datetime';
@@ -317,6 +317,60 @@ export const resolvers = {
       }
 
       return true;
+    },
+
+    createStaffAccount: async (
+      _parent: unknown,
+      args: {
+        firstName: string;
+        lastName: string;
+        email: string;
+        phoneNumber: string;
+        password: string;
+        passwordConfirm: string;
+        role: PrismaStaffType;
+      },
+      ctx: GraphQLContext
+    ) => {
+      requireRole(ctx.auth, [PrismaStaffType.ADMIN]);
+
+      if (args.password !== args.passwordConfirm) {
+        throw new GraphQLError('Passwords do not match', {
+          extensions: { code: 'BAD_USER_INPUT', field: 'passwordConfirm' },
+        });
+      }
+
+      const passwordHash = await hashPassword(args.password);
+
+      try {
+        return await ctx.prisma.user.create({
+          data: {
+            id: randomUUID(),
+            first_name: args.firstName,
+            last_name: args.lastName,
+            email: args.email,
+            phone_number: args.phoneNumber,
+            password_hash: passwordHash,
+            staff: { create: { staffType: args.role } },
+          },
+          include: { staff: true },
+        });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          const existingUser = await ctx.prisma.user.findUnique({
+            where: { email: args.email },
+            select: { id: true },
+          });
+
+          if (existingUser) {
+            throw new GraphQLError('Email is already in use', {
+              extensions: { code: 'BAD_USER_INPUT', field: 'email' },
+            });
+          }
+        }
+
+        throw error;
+      }
     },
   },
 };
