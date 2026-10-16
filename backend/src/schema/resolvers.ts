@@ -298,7 +298,6 @@ export const resolvers = {
                 return;
               }
 
-              // Use the same user lock as refresh before revoking this token.
               await tx.$queryRaw`
                 SELECT "id" FROM "users"
                 WHERE "id" = ${tokenOwner.user_id}::uuid
