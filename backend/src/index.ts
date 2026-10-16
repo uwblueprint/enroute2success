@@ -2,6 +2,7 @@ import 'dotenv/config';
 import http from 'node:http';
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { ApolloServer } from '@apollo/server';
 import { ApolloServerPluginDrainHttpServer } from '@apollo/server/plugin/drainHttpServer';
 import { expressMiddleware } from '@as-integrations/express5';
@@ -29,6 +30,7 @@ async function main() {
     '/graphql',
     cors({ origin: CORS_ORIGIN, credentials: true }),
     express.json(),
+    cookieParser(),
     expressMiddleware(apolloServer, {
       context: createContext,
     })
