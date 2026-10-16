@@ -1,10 +1,14 @@
+import { randomUUID } from 'node:crypto';
+import { GraphQLError } from 'graphql';
 import { UUIDResolver } from 'graphql-scalars';
 import { StaffType as PrismaStaffType } from '../../generated/client';
-import type { User, StaffUsers } from '../../generated/client';
+import type { User, StaffUsers, session, session_status } from '../../generated/client';
 import type { GraphQLContext } from '../context';
-import type { session, session_status } from '../../generated/client';
-import { GraphQLError } from 'graphql';
 import { currentLocalMonthYear, monthRangeUtc } from '../datetime';
+import { generateStaffAccessToken } from '../accessTokens';
+import { hashPassword, verifyPassword } from '../passwords';
+import { generateRefreshToken, getRefreshTokenExpiry, hashRefreshToken } from '../refreshTokens';
+import { setRefreshTokenCookie } from '../refreshTokenCookies';
 
 type SessionsArgs = {
   month?: number | null;
@@ -117,5 +121,52 @@ export const resolvers = {
     startDatetime: (s: session) => s.start_datetime.toISOString(),
     endDatetime: (s: session) => s.end_datetime.toISOString(),
     maxAttendees: (s: session) => s.max_attendees,
+  },
+
+  Mutation: {
+    loginStaff: async (
+      _parent: unknown,
+      args: { email: string; password: string },
+      ctx: GraphQLContext
+    ) => {
+      const user = await ctx.prisma.user.findUnique({
+        where: { email: args.email },
+        include: { staff: true },
+      });
+
+      let passwordMatches = false;
+
+      if (user) {
+        passwordMatches = await verifyPassword(user.password_hash, args.password);
+      } else {
+        await hashPassword(args.password);
+      }
+
+      if (!user || !user.staff || !passwordMatches) {
+        throw new GraphQLError('email or password is incorrect', {
+          extensions: { code: 'UNAUTHENTICATED' },
+        });
+      }
+
+      const accessToken = generateStaffAccessToken({
+        userId: user.id,
+        role: user.staff.staffType,
+      });
+      const refreshToken = generateRefreshToken();
+      const expiresAt = getRefreshTokenExpiry();
+
+      await ctx.prisma.refresh_tokens.create({
+        data: {
+          id: randomUUID(),
+          user_id: user.id,
+          token_hash: hashRefreshToken(refreshToken),
+          expires_at: expiresAt,
+        },
+      });
+
+      setRefreshTokenCookie(ctx.res, refreshToken, expiresAt);
+
+      return { accessToken, user };
+    },
   },
 };
