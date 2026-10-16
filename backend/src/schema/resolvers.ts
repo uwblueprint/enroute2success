@@ -102,14 +102,31 @@ export const resolvers = {
       const refreshToken = generateRefreshToken();
       const expiresAt = getRefreshTokenExpiry();
 
-      await ctx.prisma.refresh_tokens.create({
-        data: {
-          id: randomUUID(),
-          user_id: user.id,
-          token_hash: hashRefreshToken(refreshToken),
-          expires_at: expiresAt,
+      await ctx.prisma.$transaction(
+        async (tx) => {
+          const [currentUser] = await tx.$queryRaw<Array<{ password_hash: string }>>`
+            SELECT "password_hash" FROM "users"
+            WHERE "id" = ${user.id}::uuid
+            FOR UPDATE
+          `;
+
+          if (currentUser?.password_hash !== user.password_hash) {
+            throw new GraphQLError('email or password is incorrect', {
+              extensions: { code: 'UNAUTHENTICATED' },
+            });
+          }
+
+          await tx.refresh_tokens.create({
+            data: {
+              id: randomUUID(),
+              user_id: user.id,
+              token_hash: hashRefreshToken(refreshToken),
+              expires_at: expiresAt,
+            },
+          });
         },
-      });
+        { isolationLevel: 'ReadCommitted' }
+      );
 
       setRefreshTokenCookie(ctx.res, refreshToken, expiresAt);
 
@@ -297,6 +314,39 @@ export const resolvers = {
 
         throw error;
       }
+    },
+
+    adminSetPassword: async (
+      _parent: unknown,
+      args: { userId: string; newPassword: string },
+      ctx: GraphQLContext
+    ) => {
+      requireRole(ctx.auth, [PrismaStaffType.ADMIN]);
+
+      const passwordHash = await hashPassword(args.newPassword);
+
+      await ctx.prisma.$transaction(
+        async (tx) => {
+          const updatedUser = await tx.user.updateMany({
+            where: { id: args.userId },
+            data: { password_hash: passwordHash },
+          });
+
+          if (updatedUser.count === 0) {
+            throw new GraphQLError('User not found', {
+              extensions: { code: 'BAD_USER_INPUT', field: 'userId' },
+            });
+          }
+
+          await tx.refresh_tokens.updateMany({
+            where: { user_id: args.userId, revoked_at: null },
+            data: { revoked_at: new Date() },
+          });
+        },
+        { isolationLevel: 'ReadCommitted' }
+      );
+
+      return true;
     },
   },
 };
