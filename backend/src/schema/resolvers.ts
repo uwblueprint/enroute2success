@@ -7,7 +7,7 @@ import type { GraphQLContext } from '../context';
 import { generateStaffAccessToken } from '../accessTokens';
 import { hashPassword, verifyPassword } from '../passwords';
 import { generateRefreshToken, getRefreshTokenExpiry, hashRefreshToken } from '../refreshTokens';
-import { setRefreshTokenCookie } from '../refreshTokenCookies';
+import { clearRefreshTokenCookie, setRefreshTokenCookie } from '../refreshTokenCookies';
 
 // A database user with their staff relation loaded.
 // The staff relation can be null.
@@ -95,6 +95,98 @@ export const resolvers = {
       setRefreshTokenCookie(ctx.res, refreshToken, expiresAt);
 
       return { accessToken, user };
+    },
+
+    refreshAccessToken: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
+      try {
+        const rawToken: unknown = ctx.req.cookies?.refresh_token;
+
+        if (typeof rawToken !== 'string' || rawToken.length === 0) {
+          throw new Error('Missing refresh token');
+        }
+
+        const tokenHash = hashRefreshToken(rawToken);
+        const session = await ctx.prisma.$transaction(
+          async (tx) => {
+            const tokenOwner = await tx.refresh_tokens.findUnique({
+              where: { token_hash: tokenHash },
+              select: { user_id: true },
+            });
+
+            if (!tokenOwner) {
+              return null;
+            }
+
+            // Serialize refreshes for this user, including replay revocation.
+            await tx.$queryRaw`
+              SELECT "id" FROM "users"
+              WHERE "id" = ${tokenOwner.user_id}::uuid
+              FOR UPDATE
+            `;
+
+            const storedToken = await tx.refresh_tokens.findUnique({
+              where: { token_hash: tokenHash },
+              include: { user: { include: { staff: true } } },
+            });
+
+            if (!storedToken) {
+              return null;
+            }
+
+            const now = new Date();
+
+            if (storedToken.revoked_at !== null) {
+              await tx.refresh_tokens.updateMany({
+                where: { user_id: storedToken.user_id, revoked_at: null },
+                data: { revoked_at: now },
+              });
+
+              // Let revocations commit before returning the authentication error.
+              return null;
+            }
+
+            if (storedToken.expires_at.getTime() <= now.getTime() || !storedToken.user.staff) {
+              return null;
+            }
+
+            const accessToken = generateStaffAccessToken({
+              userId: storedToken.user.id,
+              role: storedToken.user.staff.staffType,
+            });
+            const refreshToken = generateRefreshToken();
+            const expiresAt = getRefreshTokenExpiry();
+
+            await tx.refresh_tokens.update({
+              where: { id: storedToken.id },
+              data: { revoked_at: now },
+            });
+            await tx.refresh_tokens.create({
+              data: {
+                id: randomUUID(),
+                user_id: storedToken.user_id,
+                token_hash: hashRefreshToken(refreshToken),
+                expires_at: expiresAt,
+              },
+            });
+
+            return { accessToken, user: storedToken.user, refreshToken, expiresAt };
+          },
+          { isolationLevel: 'ReadCommitted' }
+        );
+
+        if (!session) {
+          throw new Error('Invalid refresh token');
+        }
+
+        setRefreshTokenCookie(ctx.res, session.refreshToken, session.expiresAt);
+
+        return { accessToken: session.accessToken, user: session.user };
+      } catch {
+        clearRefreshTokenCookie(ctx.res);
+        throw new GraphQLError('Invalid or expired refresh token', {
+          extensions: { code: 'UNAUTHENTICATED' },
+        });
+      }
     },
   },
 };
