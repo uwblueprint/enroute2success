@@ -1,5 +1,5 @@
 -- CreateEnum
-CREATE TYPE "staff_type" AS ENUM ('admin', 'coaches', 'volunteer');
+CREATE TYPE "staff_type" AS ENUM ('admin', 'coach', 'volunteer');
 
 -- CreateTable
 CREATE TABLE "users" (
