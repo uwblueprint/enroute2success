@@ -13,7 +13,7 @@ export const resolvers = {
   UUID: UUIDResolver,
 
   StaffType: {
-    COACH: PrismaStaffType.COACHES,
+    COACH: PrismaStaffType.COACH,
     VOLUNTEER: PrismaStaffType.VOLUNTEER,
     ADMIN: PrismaStaffType.ADMIN,
   },
