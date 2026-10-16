@@ -42,9 +42,13 @@ export const typeDefs = `#graphql
     logout: Boolean!
 
     createStaffAccount(
+      firstName: String!
+      lastName: String!
       email: String!
+      phoneNumber: String!
       password: String!
       passwordConfirm: String!
+      role: StaffType!
     ): User!
 
     adminSetPassword(
