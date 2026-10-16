@@ -16,7 +16,7 @@ const accounts = [
     id: '00000000-0000-4000-8000-000000000002',
     email: 'coach@e2s.test',
     lastName: 'Coach',
-    role: StaffType.COACHES,
+    role: StaffType.COACH,
   },
   {
     id: '00000000-0000-4000-8000-000000000003',
