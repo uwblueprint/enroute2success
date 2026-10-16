@@ -18,7 +18,7 @@ export const resolvers = {
   UUID: UUIDResolver,
 
   StaffType: {
-    COACH: PrismaStaffType.COACHES,
+    COACH: PrismaStaffType.COACH,
     VOLUNTEER: PrismaStaffType.VOLUNTEER,
     ADMIN: PrismaStaffType.ADMIN,
   },
@@ -35,7 +35,7 @@ export const resolvers = {
     me: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
       const caller = requireRole(ctx.auth, [
         PrismaStaffType.ADMIN,
-        PrismaStaffType.COACHES,
+        PrismaStaffType.COACH,
         PrismaStaffType.VOLUNTEER,
       ]);
       const user = await ctx.prisma.user.findUnique({
