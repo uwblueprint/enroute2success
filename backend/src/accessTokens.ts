@@ -36,7 +36,7 @@ export function verifyStaffAccessToken(token: string): AuthenticatedStaff {
 
     const role: unknown = payload.role;
 
-    if (role !== StaffType.ADMIN && role !== StaffType.COACHES && role !== StaffType.VOLUNTEER) {
+    if (role !== StaffType.ADMIN && role !== StaffType.COACH && role !== StaffType.VOLUNTEER) {
       throw new Error('Invalid access-token role');
     }
 
