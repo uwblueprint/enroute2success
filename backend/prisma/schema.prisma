@@ -38,7 +38,6 @@ model User {
 }
 
 model StaffUsers {
-  // Shared PK with User — must be the same UUID, so no @default(uuid()).
   id String @id @db.Uuid
   staffType StaffType @map("type")
 
