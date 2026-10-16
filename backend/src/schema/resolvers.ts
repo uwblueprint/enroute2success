@@ -5,12 +5,11 @@ import { StaffType as PrismaStaffType } from '../../generated/client';
 import type { User, StaffUsers } from '../../generated/client';
 import type { GraphQLContext } from '../context';
 import { generateStaffAccessToken } from '../accessTokens';
+import { requireRole } from '../auth';
 import { hashPassword, verifyPassword } from '../passwords';
 import { generateRefreshToken, getRefreshTokenExpiry, hashRefreshToken } from '../refreshTokens';
 import { clearRefreshTokenCookie, setRefreshTokenCookie } from '../refreshTokenCookies';
 
-// A database user with their staff relation loaded.
-// The staff relation can be null.
 type UserWithStaff = User & {
   staff: StaffUsers | null;
 };
@@ -33,6 +32,26 @@ export const resolvers = {
   },
 
   Query: {
+    me: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
+      const caller = requireRole(ctx.auth, [
+        PrismaStaffType.ADMIN,
+        PrismaStaffType.COACHES,
+        PrismaStaffType.VOLUNTEER,
+      ]);
+      const user = await ctx.prisma.user.findUnique({
+        where: { id: caller.userId },
+        include: { staff: true },
+      });
+
+      if (!user) {
+        throw new GraphQLError('Authentication required', {
+          extensions: { code: 'UNAUTHENTICATED' },
+        });
+      }
+
+      return user;
+    },
+
     health: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
       let databaseConnected = false;
 
@@ -117,7 +136,6 @@ export const resolvers = {
               return null;
             }
 
-            // Serialize refreshes for this user, including replay revocation.
             await tx.$queryRaw`
               SELECT "id" FROM "users"
               WHERE "id" = ${tokenOwner.user_id}::uuid
@@ -141,7 +159,6 @@ export const resolvers = {
                 data: { revoked_at: now },
               });
 
-              // Let revocations commit before returning the authentication error.
               return null;
             }
 
@@ -187,6 +204,46 @@ export const resolvers = {
           extensions: { code: 'UNAUTHENTICATED' },
         });
       }
+    },
+
+    logout: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
+      try {
+        const rawToken: unknown = ctx.req.cookies?.refresh_token;
+
+        if (typeof rawToken === 'string' && rawToken.length > 0) {
+          const tokenHash = hashRefreshToken(rawToken);
+
+          await ctx.prisma.$transaction(
+            async (tx) => {
+              const tokenOwner = await tx.refresh_tokens.findUnique({
+                where: { token_hash: tokenHash },
+                select: { user_id: true },
+              });
+
+              if (!tokenOwner) {
+                return;
+              }
+
+              // Use the same user lock as refresh before revoking this token.
+              await tx.$queryRaw`
+                SELECT "id" FROM "users"
+                WHERE "id" = ${tokenOwner.user_id}::uuid
+                FOR UPDATE
+              `;
+
+              await tx.refresh_tokens.updateMany({
+                where: { token_hash: tokenHash, revoked_at: null },
+                data: { revoked_at: new Date() },
+              });
+            },
+            { isolationLevel: 'ReadCommitted' }
+          );
+        }
+      } finally {
+        clearRefreshTokenCookie(ctx.res);
+      }
+
+      return true;
     },
   },
 };
