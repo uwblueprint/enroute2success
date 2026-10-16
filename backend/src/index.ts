@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import http from 'node:http';
-import express from 'express';
+import express, { type RequestHandler } from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { ApolloServer } from '@apollo/server';
@@ -14,6 +14,15 @@ import { prisma } from './prisma';
 const PORT = Number(process.env.PORT ?? 4000);
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
 
+const requireJsonGraphQLPost: RequestHandler = (req, res, next) => {
+  if (req.method === 'POST' && !req.is('application/json')) {
+    res.status(415).json({ errors: [{ message: 'Content-Type must be application/json' }] });
+    return;
+  }
+
+  next();
+};
+
 async function main() {
   const app = express();
   // Apollo Server drains this httpServer on shutdown for graceful exit.
@@ -22,6 +31,7 @@ async function main() {
   const apolloServer = new ApolloServer<GraphQLContext>({
     typeDefs,
     resolvers,
+    csrfPrevention: true,
     plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
   });
   await apolloServer.start();
@@ -29,6 +39,7 @@ async function main() {
   app.use(
     '/graphql',
     cors({ origin: CORS_ORIGIN, credentials: true }),
+    requireJsonGraphQLPost,
     express.json(),
     cookieParser(),
     expressMiddleware(apolloServer, {
