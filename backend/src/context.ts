@@ -17,15 +17,7 @@ export async function createContext({
   res,
 }: ExpressContextFunctionArgument): Promise<GraphQLContext> {
   const token = req.headers.authorization?.match(/^Bearer +(\S+)$/i)?.[1];
-  let auth: AuthenticatedStaff | null = null;
-
-  if (token) {
-    try {
-      auth = verifyStaffAccessToken(token);
-    } catch {
-      auth = null;
-    }
-  }
+  const auth = token ? verifyStaffAccessToken(token) : null;
 
   return { prisma, req, res, auth };
 }
