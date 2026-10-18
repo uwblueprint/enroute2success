@@ -10,7 +10,7 @@ export const typeDefs = `#graphql
   type User {
     id: UUID!
     firstName: String!
-    lastName: String
+    lastName: String!
     email: String!
     role: StaffType
   }
