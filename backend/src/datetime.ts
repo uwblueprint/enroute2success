@@ -15,7 +15,7 @@
 
 // The organization's IANA timezone. Override via ORG_TIMEZONE if the org moves
 // or operates in a different locale. Defaults to US Eastern.
-export const ORG_TIMEZONE = process.env.ORG_TIMEZONE ?? "America/New_York";
+export const ORG_TIMEZONE = process.env.ORG_TIMEZONE ?? 'America/New_York';
 
 /**
  * Returns the UTC offset (in minutes) that `timeZone` has at the given UTC
@@ -26,26 +26,25 @@ function offsetMinutes(instant: Date, timeZone: string): number {
   // Format the instant as wall-clock time in the target zone, then interpret
   // those wall-clock parts as if they were UTC. The difference between that and
   // the real instant is the zone's offset at that moment.
-  const dtf = new Intl.DateTimeFormat("en-US", {
+  const dtf = new Intl.DateTimeFormat('en-US', {
     timeZone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
   });
   const parts = dtf.formatToParts(instant);
-  const get = (type: string) =>
-    Number(parts.find((p) => p.type === type)?.value);
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
   const asUTC = Date.UTC(
-    get("year"),
-    get("month") - 1,
-    get("day"),
-    get("hour"),
-    get("minute"),
-    get("second")
+    get('year'),
+    get('month') - 1,
+    get('day'),
+    get('hour'),
+    get('minute'),
+    get('second')
   );
   return (asUTC - instant.getTime()) / 60000;
 }
@@ -113,12 +112,11 @@ export function currentLocalMonthYear(timeZone: string = ORG_TIMEZONE): {
   month: number;
   year: number;
 } {
-  const parts = new Intl.DateTimeFormat("en-US", {
+  const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
-    year: "numeric",
-    month: "2-digit",
+    year: 'numeric',
+    month: '2-digit',
   }).formatToParts(new Date());
-  const get = (type: string) =>
-    Number(parts.find((p) => p.type === type)?.value);
-  return { month: get("month"), year: get("year") };
+  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  return { month: get('month'), year: get('year') };
 }
