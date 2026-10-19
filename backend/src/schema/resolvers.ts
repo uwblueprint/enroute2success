@@ -20,8 +20,8 @@ export const resolvers = {
       try {
         await ctx.prisma.$queryRaw`SELECT 1`;
         databaseConnected = true;
-      } catch (err) {
-        //console.error("[health] database check failed:", err);
+      } catch {
+        databaseConnected = false;
       }
 
       return {
@@ -42,8 +42,7 @@ export const resolvers = {
     ) => {
       const { month, year, sessionStatuses } = args;
 
-      // Validation: month and year must be provided together or not at all.
-      // Supplying only one is ambiguous for a calendar month view.
+      // Supplying only one of month/year is ambiguous for a calendar month view.
       const hasMonth = month != null;
       const hasYear = year != null;
       if (hasMonth !== hasYear) {

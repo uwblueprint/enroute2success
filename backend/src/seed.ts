@@ -67,10 +67,12 @@ async function main() {
       location: "City Driving Range",
       max_attendees: 20,
       session_type: "golf" as session_type,
-      // DATE / TIME columns — pass midnight-anchored values; Prisma maps them.
+      // DATE/TIME columns: date-only and time-only values are anchored to an
+      // arbitrary epoch day (TIME) or midnight (DATE); Prisma maps them to the
+      // bare DB DATE/TIME, discarding the placeholder parts.
       start_date: new Date(Date.UTC(year, month - 1, 1)),
       end_date: null,
-      start_time: new Date(Date.UTC(1970, 0, 1, 14, 0, 0)), // 10:00 ET-ish
+      start_time: new Date(Date.UTC(1970, 0, 1, 14, 0, 0)),
       end_time: new Date(Date.UTC(1970, 0, 1, 16, 0, 0)),
       image_urls: [],
     },
@@ -103,8 +105,8 @@ async function main() {
       session_series_id: null,
       name: "Open Chess Night",
       description: "Casual drop-in chess, all skill levels.",
-      location: null, // null optional field — UI should hide it
-      max_attendees: null, // no capacity
+      location: null, // exercises the null-optional path the UI must hide
+      max_attendees: null,
       status: scheduled,
       session_type: chess,
       start_datetime: local(year, month, 12, 18, 0),
