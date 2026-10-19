@@ -20,7 +20,8 @@ export const resolvers = {
       try {
         await ctx.prisma.$queryRaw`SELECT 1`;
         databaseConnected = true;
-      } catch {
+      } catch (err) {
+        console.error('[health] database check failed:', err);
         databaseConnected = false;
       }
 

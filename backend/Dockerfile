@@ -7,7 +7,7 @@
 
 FROM node:24-alpine AS base
 WORKDIR /app
-COPY package*.json ./
+COPY package*.json .npmrc ./
 COPY prisma ./prisma
 RUN npm ci
 

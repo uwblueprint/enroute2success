@@ -1,6 +1,6 @@
-import { gql } from "@apollo/client";
+import { gql } from '@apollo/client';
 // React hooks live in the "@apollo/client/react" entrypoint as of Apollo Client v4.
-import { useQuery } from "@apollo/client/react";
+import { useQuery } from '@apollo/client/react';
 
 const HEALTH_QUERY = gql`
   query Health {
@@ -21,8 +21,7 @@ interface HealthQueryResult {
 }
 
 function App() {
-  const { data, loading, error, refetch } =
-    useQuery<HealthQueryResult>(HEALTH_QUERY);
+  const { data, loading, error, refetch } = useQuery<HealthQueryResult>(HEALTH_QUERY);
 
   return (
     <main className="app">
@@ -36,8 +35,7 @@ function App() {
 
         {error && (
           <p className="status status--error">
-            ❌ Could not reach the GraphQL API at{" "}
-            <code>{import.meta.env.VITE_GRAPHQL_URL}</code>.
+            ❌ Could not reach the GraphQL API at <code>{import.meta.env.VITE_GRAPHQL_URL}</code>.
             <br />
             {error.message}
           </p>
@@ -45,12 +43,10 @@ function App() {
 
         {data && (
           <ul className="status-list">
+            <li>GraphQL server: {data.health.ok ? '✅ reachable' : '❌ unreachable'}</li>
             <li>
-              GraphQL server: {data.health.ok ? "✅ reachable" : "❌ unreachable"}
-            </li>
-            <li>
-              Postgres (via Prisma):{" "}
-              {data.health.databaseConnected ? "✅ connected" : "❌ not connected"}
+              Postgres (via Prisma):{' '}
+              {data.health.databaseConnected ? '✅ connected' : '❌ not connected'}
             </li>
             <li>Server time: {data.health.timestamp}</li>
           </ul>
@@ -60,10 +56,9 @@ function App() {
       </section>
 
       <p className="hint">
-        This is a bare scaffold — no sample data model yet. Add Prisma models in{" "}
-        <code>backend/prisma/schema.prisma</code>, extend the GraphQL schema in{" "}
-        <code>backend/src/schema</code>, and build UI here in{" "}
-        <code>frontend/src</code>.
+        This is a bare scaffold — no sample data model yet. Add Prisma models in{' '}
+        <code>backend/prisma/schema.prisma</code>, extend the GraphQL schema in{' '}
+        <code>backend/src/schema</code>, and build UI here in <code>frontend/src</code>.
       </p>
     </main>
   );
