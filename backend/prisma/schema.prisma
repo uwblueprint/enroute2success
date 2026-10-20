@@ -114,3 +114,19 @@ model refresh_tokens {
 
   user User @relation(fields: [user_id], references: [id])
 }
+
+model Announcements {
+  id         String    @id @default(uuid()) @db.Uuid
+  message    String
+  start_date DateTime
+  end_date   DateTime?
+  deleted_at DateTime?
+  created_by String    @db.Uuid
+  created_at DateTime  @default(now()) @map("createdAt")
+  updated_at DateTime  @updatedAt @map("updatedAt")
+
+  creator User @relation(fields: [created_by], references: [id], onDelete: Cascade)
+
+  @@index([created_by])
+  @@map("announcements")
+}
