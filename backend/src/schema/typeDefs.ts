@@ -78,7 +78,6 @@ export const typeDefs = `#graphql
       email: String!
       phoneNumber: String!
       password: String!
-      passwordConfirm: String!
       role: StaffType!
     ): User!
 

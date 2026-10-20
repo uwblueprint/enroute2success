@@ -344,18 +344,11 @@ export const resolvers = {
         email: string;
         phoneNumber: string;
         password: string;
-        passwordConfirm: string;
         role: PrismaStaffType;
       },
       ctx: GraphQLContext
     ) => {
       requireRole(ctx.auth, [PrismaStaffType.ADMIN]);
-
-      if (args.password !== args.passwordConfirm) {
-        throw new GraphQLError('Passwords do not match', {
-          extensions: { code: 'BAD_USER_INPUT', field: 'passwordConfirm' },
-        });
-      }
 
       const passwordHash = await hashPassword(args.password);
 
