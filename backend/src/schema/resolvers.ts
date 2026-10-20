@@ -57,13 +57,10 @@ export const resolvers = {
         });
       }
 
-      // Resolve the target local month. No params -> current local month.
       const target = hasMonth
         ? { month: month!, year: year! }
         : currentLocalMonthYear();
 
-      // Compute UTC boundaries from the ORG's local timezone so sessions near
-      // midnight land in the correct local month.
       const range = monthRangeUtc(target.year, target.month);
 
       return ctx.prisma.session.findMany({

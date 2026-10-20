@@ -75,10 +75,6 @@ export function zonedWallTimeToUtc(
   return new Date(utcMs);
 }
 
-/**
- * Computes the half-open UTC range `[gte, lt)` whose local start dates fall in
- * the given local month (1-12) and year, in `timeZone`.
- */
 export function monthRangeUtc(
   year: number,
   month1to12: number,
