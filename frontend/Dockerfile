@@ -3,7 +3,7 @@
 # ---------- base: shared deps layer ----------
 FROM node:24-alpine AS base
 WORKDIR /app
-COPY package*.json ./
+COPY package*.json .npmrc ./
 RUN npm ci
 
 # ---------- dev: Vite dev server with HMR (used by docker-compose.yml) ----------

@@ -1,5 +1,5 @@
-import type { PrismaClient } from "../generated/client";
-import { prisma } from "./prisma";
+import type { PrismaClient } from '../generated/client';
+import { prisma } from './prisma';
 
 export interface GraphQLContext {
   prisma: PrismaClient;
