@@ -13,8 +13,6 @@
  * sessions whose *local* start date falls in the requested month.
  */
 
-// The organization's IANA timezone. Override via ORG_TIMEZONE if the org moves
-// or operates in a different locale. Defaults to US Eastern.
 export const ORG_TIMEZONE = process.env.ORG_TIMEZONE ?? "America/New_York";
 
 /**
@@ -88,10 +86,6 @@ export function monthRangeUtc(
   };
 }
 
-/**
- * Computes the half-open UTC range `[gte, lt)` whose local start dates fall in
- * the given local calendar year, in `timeZone`.
- */
 export function yearRangeUtc(
   year: number,
   timeZone: string = ORG_TIMEZONE
