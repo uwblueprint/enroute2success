@@ -1,9 +1,9 @@
 import type { ExpressContextFunctionArgument } from '@as-integrations/express5';
 import type { Request, Response } from 'express';
-import type { PrismaClient } from '../generated/client';
-import { prisma } from './prisma';
-import type { AuthenticatedStaff } from './auth';
-import { verifyStaffAccessToken } from './accessTokens';
+import type { PrismaClient } from '../../generated/client';
+import { prisma } from '../prisma';
+import type { AuthenticatedStaff } from '../utils/auth';
+import { verifyStaffAccessToken } from '../utils/accessTokens';
 
 export interface GraphQLContext {
   prisma: PrismaClient;

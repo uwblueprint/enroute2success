@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { GraphQLError } from 'graphql';
 import jwt from 'jsonwebtoken';
-import { StaffType } from '../generated/client';
+import { StaffType } from '../../generated/client';
 import type { AuthenticatedStaff } from './auth';
 
 const jwtSecret = process.env.JWT_SECRET;

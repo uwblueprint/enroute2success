@@ -16,12 +16,12 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "db:seed": "tsx src/seed.ts",
-    "seed:dev": "tsx src/scripts/seedDev.ts"
+    "db:seed": "tsx src/scripts/seed.ts"
   },
   "dependencies": {
     "@apollo/server": "^5.5.1",
     "@as-integrations/express5": "^1.1.2",
+    "@graphql-tools/schema": "^10.1.5",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "argon2": "^0.45.1",

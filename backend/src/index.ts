@@ -6,9 +6,8 @@ import cookieParser from 'cookie-parser';
 import { ApolloServer } from '@apollo/server';
 import { ApolloServerPluginDrainHttpServer } from '@apollo/server/plugin/drainHttpServer';
 import { expressMiddleware } from '@as-integrations/express5';
-import { typeDefs } from './schema/typeDefs';
-import { resolvers } from './schema/resolvers';
-import { createContext, type GraphQLContext } from './context';
+import { schema } from './graphql';
+import { createContext, type GraphQLContext } from './graphql/context';
 import { prisma } from './prisma';
 
 const PORT = Number(process.env.PORT ?? 4000);
@@ -29,8 +28,7 @@ async function main() {
   const httpServer = http.createServer(app);
 
   const apolloServer = new ApolloServer<GraphQLContext>({
-    typeDefs,
-    resolvers,
+    schema,
     csrfPrevention: true,
     plugins: [ApolloServerPluginDrainHttpServer({ httpServer })],
   });

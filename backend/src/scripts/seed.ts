@@ -1,12 +1,17 @@
 /**
- * Dev-only seed for the `session` (and one `session_series`) tables.
+ * Dev-only seed for staff accounts and sessions.
  *
- * ⚠️  NOT FOR PRODUCTION. This script wipes existing sessions/series and
- * inserts fixture data to exercise the month-browse + session(id) features
- * without an admin UI. It refuses to run when NODE_ENV === "production".
+ * ⚠️  NOT FOR PRODUCTION. It requires NODE_ENV=development and a DATABASE_URL
+ * pointing at the local e2s_db database.
  *
- * Run with:  npm run db:seed   (see package.json)
+ * Run with:  npm run db:seed   (see package.json and README.md)
  *
+ * Staff accounts: creates the four fixture accounts if missing and leaves
+ * existing matching accounts unchanged (including passwords). Rolls back if a
+ * fixture ID or email belongs to a different account.
+ *
+ * Sessions: wipes existing sessions/series and inserts fixture data to
+ * exercise the month-browse + session(id) features without an admin UI.
  * Fixture coverage (maps to the testing checklist):
  *  - Sessions with AND without `max_attendees`.
  *  - One `draft` and one `cancelled` session.
@@ -14,19 +19,119 @@
  *  - One near midnight on the LAST day of a month (timezone edge case).
  *  - One in a PAST month.
  *  - One belonging to a `session_series`, and one one-off (null series).
- *
- * All wall-clock times below are expressed in the ORG's local timezone and
- * converted to the UTC instants actually stored in the DB, mirroring how real
- * data would be written.
  */
 import 'dotenv/config';
-import { prisma } from './prisma';
-import { ORG_TIMEZONE, zonedWallTimeToUtc, currentLocalMonthYear } from './datetime';
-import type { session_status, session_type } from '../generated/client';
+import { StaffType } from '../../generated/client';
+import type { session_status, session_type } from '../../generated/client';
+import { ORG_TIMEZONE, zonedWallTimeToUtc, currentLocalMonthYear } from '../utils/datetime';
+import { hashPassword } from '../utils/passwords';
+import { prisma } from '../prisma';
 
-if (process.env.NODE_ENV === 'production') {
-  console.error('✋ Refusing to run the dev seed in production (NODE_ENV=production).');
-  process.exit(1);
+const DEV_PASSWORD = 'DevOnly!12345';
+
+const accounts = [
+  {
+    id: '00000000-0000-4000-8000-000000000001',
+    email: 'admin@e2s.test',
+    lastName: 'Admin',
+    role: StaffType.ADMIN,
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000002',
+    email: 'coach@e2s.test',
+    lastName: 'Coach',
+    role: StaffType.COACH,
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000003',
+    email: 'volunteer@e2s.test',
+    lastName: 'Volunteer',
+    role: StaffType.VOLUNTEER,
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000004',
+    email: 'nonstaff@e2s.test',
+    lastName: 'Nonstaff',
+    role: null,
+  },
+];
+
+const DEV_DATABASE_HOSTS = ['postgres', 'localhost', '127.0.0.1'];
+
+class SeedError extends Error {}
+
+function requireDevelopmentDatabase(): void {
+  if (process.env.NODE_ENV !== 'development') {
+    throw new SeedError('Dev seeding requires NODE_ENV=development.');
+  }
+
+  let target: URL;
+  try {
+    target = new URL(process.env.DATABASE_URL ?? '');
+  } catch {
+    throw new SeedError('Dev seeding requires a valid development DATABASE_URL.');
+  }
+
+  if (
+    !['postgres:', 'postgresql:'].includes(target.protocol) ||
+    !DEV_DATABASE_HOSTS.includes(target.hostname) ||
+    (target.port || '5432') !== '5432' ||
+    target.pathname !== '/e2s_db'
+  ) {
+    throw new SeedError(
+      'Dev seeding only supports the local database e2s_db on port 5432 (host postgres, localhost, or 127.0.0.1).'
+    );
+  }
+}
+
+async function seedStaffAccounts(): Promise<void> {
+  const preparedAccounts = await Promise.all(
+    accounts.map(async (account) => ({
+      ...account,
+      passwordHash: await hashPassword(DEV_PASSWORD),
+    }))
+  );
+
+  const created = await prisma.$transaction(
+    async (tx) => {
+      let count = 0;
+
+      for (const account of preparedAccounts) {
+        const existing = await tx.user.findFirst({
+          where: { OR: [{ id: account.id }, { email: account.email }] },
+          select: { id: true, email: true },
+        });
+
+        if (existing) {
+          if (existing.id !== account.id || existing.email !== account.email) {
+            throw new SeedError(
+              'A seed ID or email belongs to another account; account seeding was rolled back.'
+            );
+          }
+
+          continue;
+        }
+
+        await tx.user.create({
+          data: {
+            id: account.id,
+            first_name: 'Dev',
+            last_name: account.lastName,
+            email: account.email,
+            phone_number: '0000000000',
+            password_hash: account.passwordHash,
+            ...(account.role === null ? {} : { staff: { create: { staffType: account.role } } }),
+          },
+        });
+        count += 1;
+      }
+
+      return count;
+    },
+    { isolationLevel: 'ReadCommitted' }
+  );
+
+  console.log(`✅ Created ${created} dev auth accounts; existing accounts were unchanged.`);
 }
 
 /** Build a UTC Date from local wall-clock parts in the ORG timezone. */
@@ -36,7 +141,7 @@ function local(year: number, month: number, day: number, hour = 0, minute = 0): 
   return new Date(midnightUtc.getTime() + (hour * 60 + minute) * 60000);
 }
 
-async function main() {
+async function seedSessions(): Promise<void> {
   const { month, year } = currentLocalMonthYear();
   const prevMonth = month === 1 ? 12 : month - 1;
   const prevMonthYear = month === 1 ? year - 1 : year;
@@ -203,12 +308,21 @@ async function main() {
   );
 }
 
+async function main(): Promise<void> {
+  requireDevelopmentDatabase();
+  await seedStaffAccounts();
+  await seedSessions();
+}
+
 main()
-  .then(async () => {
-    await prisma.$disconnect();
+  .catch((error: unknown) => {
+    if (error instanceof SeedError) {
+      console.error(error.message);
+    } else {
+      console.error('Seed failed. Check migrations and database access.', error);
+    }
+    process.exitCode = 1;
   })
-  .catch(async (err) => {
-    console.error('Seed failed:', err);
+  .finally(async () => {
     await prisma.$disconnect();
-    process.exit(1);
   });

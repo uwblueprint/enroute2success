@@ -1,21 +1,28 @@
-# Backend development authentication accounts
+# Backend development seed data
 
-The dev seed creates four synthetic accounts for manually checking the staff-authentication ticket.
+The dev seed (`src/scripts/seed.ts`) creates four synthetic accounts for manually checking the
+staff-authentication ticket, then replaces all sessions with fixture data for the session-browse features.
 It does not run authentication tests or create refresh tokens.
 
 ## Run the seed
 
 The Docker backend and PostgreSQL services must already be running, the Prisma client must be generated,
-and the authentication migration must be applied. Run these commands from the repository root:
+and the migrations must be applied. Run these commands from the repository root:
 
 ```sh
 docker compose exec backend npm run prisma:migrate:deploy
-docker compose exec backend npm run seed:dev
+docker compose exec backend npm run db:seed
 ```
 
-The seed requires `NODE_ENV=development` and a `DATABASE_URL` pointing to `postgres:5432/e2s_db`.
-It refuses other targets, including the host-side `pern_db` configuration. It reuses the running backend's
-connection settings and does not require database credentials on the command line.
+The seed requires `NODE_ENV=development` and a `DATABASE_URL` pointing to the `e2s_db` database on port
+5432 via host `postgres`, `localhost`, or `127.0.0.1`, so it can also be run from `backend/` on the host
+with `npm run db:seed`. It refuses other targets, including the `pern_db` configuration.
+
+## Session fixtures
+
+Every run deletes all existing sessions and session series, then inserts one weekly series and seven
+sessions relative to the current month in the org timezone: draft and cancelled sessions, several on the
+same day, one near midnight on the last day of the month, and one in the previous month.
 
 ## Sample credentials
 
@@ -34,9 +41,10 @@ number `0000000000`. These are fixtures, not real staff accounts. Their UUIDs ar
 
 ## Rerunning and testing
 
-The seed creates missing fixtures in one transaction. Existing matching fixtures are left unchanged,
-including passwords, roles, and sessions. If a fixture ID or email belongs to a different account, the
-seed refuses to proceed and rolls back its changes. It does not delete unrelated records.
+The seed creates missing account fixtures in one transaction. Existing matching accounts are left unchanged,
+including passwords, roles, and refresh-token sessions. If a fixture ID or email belongs to a different
+account, the seed refuses to proceed and rolls back its account changes before touching sessions. It does not
+delete unrelated users.
 
 If a password-reset test changes a fixture password, rerunning the seed will not restore the original
 password. Use the current password or change it with the admin password-reset mutation.

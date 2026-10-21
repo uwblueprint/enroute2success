@@ -1,5 +1,5 @@
 import { GraphQLError } from 'graphql';
-import type { StaffType } from '../generated/client';
+import type { StaffType } from '../../generated/client';
 
 export interface AuthenticatedStaff {
   userId: string;
