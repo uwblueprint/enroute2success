@@ -34,9 +34,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    # Re-run `prisma generate` on every start so the client always matches
-    # the current schema.prisma while developing.
-    command: sh -c "npx prisma generate && npm run dev"
+    # `npm ci` keeps the named node_modules volume in sync with package-lock
+    # (volume isn't refreshed when package.json changes). Then regenerate the
+    # Prisma client so it always matches schema.prisma while developing.
+    command: sh -c "npm ci && npx prisma generate && npm run dev"
 
   frontend:
     build:
