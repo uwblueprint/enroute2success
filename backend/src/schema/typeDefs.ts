@@ -1,8 +1,27 @@
 export const typeDefs = `#graphql
+  scalar UUID
+
+  enum StaffType {
+    COACH
+    VOLUNTEER
+    ADMIN
+  }
+
+  type User {
+    id: UUID!
+    firstName: String!
+    lastName: String!
+    email: String!
+    role: StaffType
+  }
+
+  type AuthPayload {
+    accessToken: String!
+    user: User!
+  }
+
   type HealthStatus {
-    "Always true if the GraphQL server can resolve queries"
     ok: Boolean!
-    "true if the server successfully queried Postgres"
     databaseConnected: Boolean!
     timestamp: String!
   }
@@ -28,15 +47,40 @@ export const typeDefs = `#graphql
   }
 
   type Query {
-    "Basic wiring check: server + database connectivity."
     health: HealthStatus!
+
     "Sessions for a calendar month, optionally filtered by status. Omit month+year for the current month."
     sessions(
       month: Int
       year: Int
       sessionStatuses: [SessionStatus!]
     ): [Session!]!
+
     "A single session by id. Returns a NOT_FOUND error if no session matches."
     session(id: ID!): Session!
+    
+    me: User
+  }
+
+  type Mutation {
+    loginStaff(
+      email: String!
+      password: String!
+    ): AuthPayload!
+
+    refreshAccessToken: AuthPayload!
+
+    logout: Boolean!
+
+    createStaffAccount(
+      email: String!
+      password: String!
+      passwordConfirm: String!
+    ): User!
+
+    adminSetPassword(
+      userId: UUID!
+      newPassword: String!
+    ): Boolean!
   }
 `;
