@@ -1,7 +1,7 @@
 import { GraphQLError } from 'graphql';
 import type { session, session_status } from '../../../generated/client';
 import type { GraphQLContext } from '../context';
-import { currentLocalMonthYear, monthRangeUtc } from '../../utils/datetime';
+import { getSessionById, listSessionsForMonth } from '../../services/sessionService';
 
 type SessionsArgs = {
   month?: number | null;
@@ -36,29 +36,16 @@ export const sessionResolvers = {
         });
       }
 
-      const target = hasMonth ? { month: month!, year: year! } : currentLocalMonthYear();
+      const target = hasMonth ? { month: month!, year: year! } : null;
 
-      // Compute UTC boundaries from the ORG's local timezone so sessions near
-      // midnight land in the correct local month.
-      const range = monthRangeUtc(target.year, target.month);
-
-      return ctx.prisma.session.findMany({
-        where: {
-          start_datetime: { gte: range.gte, lt: range.lt },
-          // An empty list or null means "all statuses".
-          ...(sessionStatuses?.length && { status: { in: sessionStatuses } }),
-        },
-        orderBy: { start_datetime: 'asc' },
-      });
+      return listSessionsForMonth(ctx.prisma, target, sessionStatuses);
     },
 
     // TODO(auth): Same lockdown as `sessions` — once auth exists, a nonexistent
     // ID and an unauthorized-status ID should be indistinguishable (both
     // NOT_FOUND) so DRAFT/CANCELLED sessions can't be probed by id.
     session: async (_parent: unknown, args: SessionArgs, ctx: GraphQLContext): Promise<session> => {
-      const found = await ctx.prisma.session.findUnique({
-        where: { id: args.id },
-      });
+      const found = await getSessionById(ctx.prisma, args.id);
       if (!found) {
         throw new GraphQLError('Session not found', {
           extensions: { code: 'NOT_FOUND', id: args.id },
