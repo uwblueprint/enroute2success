@@ -308,10 +308,108 @@ async function seedSessions(): Promise<void> {
   );
 }
 
+/**
+ * Dev-only announcement fixtures to exercise the announcement queries without
+ * an admin UI. Dates use the ORG timezone via `local()` so EST/EDT boundaries
+ * match the resolvers' timezone-aware comparisons.
+ *
+ * Per the spec, an announcement's window is [start_date 12:00 AM local,
+ * end_date 11:59 PM local]. "Live now" = started and not yet ended and not
+ * soft-deleted. Fixture coverage (maps to the testing checklist):
+ *  - Two LIVE, non-deleted announcements (different start_date → verifies
+ *    ascending order and that `currentAnnouncements` returns both).
+ *  - One UPCOMING, non-deleted (in liveAndUpcoming; NOT in current).
+ *  - One PAST/expired, non-deleted (in pastAnnouncements only).
+ *  - One DELETED but inside a live window (excluded from current &
+ *    liveAndUpcoming).
+ *  - One DELETED and expired (the ambiguous pastAnnouncements case — see note).
+ *
+ * All are created_by the seeded ADMIN account.
+ */
+async function seedAnnouncements(): Promise<void> {
+  const { month, year } = currentLocalMonthYear();
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevMonthYear = month === 1 ? year - 1 : year;
+  const today = new Date();
+
+  const ADMIN_ID = accounts[0].id; // '...0001', StaffType.ADMIN
+
+  console.log(`🌱 Seeding announcements for local timezone ${ORG_TIMEZONE}.`);
+
+  // Idempotent: wipe existing announcements before reseeding.
+  await prisma.announcements.deleteMany({});
+
+  // Helper: local calendar day in the ORG timezone, and day-boundary builders.
+  // Spec: start_date anchors to 12:00 AM local; end_date to 11:59 PM local.
+  const todayDay = Number(
+    new Intl.DateTimeFormat('en-CA', { timeZone: ORG_TIMEZONE, day: '2-digit' }).format(today)
+  );
+  const startOfDay = (y: number, m: number, d: number) => local(y, m, d, 0, 0);
+  const endOfDay = (y: number, m: number, d: number) => local(y, m, d, 23, 59);
+
+  const announcements = [
+    // 1) LIVE now — started a few days ago, ends in a few days. Earlier start.
+    {
+      message: '[LIVE #1] Currently running — earliest start.',
+      start_date: startOfDay(year, month, Math.max(1, todayDay - 3)),
+      end_date: endOfDay(year, month, todayDay + 3),
+      deleted_at: null,
+      created_by: ADMIN_ID,
+    },
+    // 2) LIVE now — started yesterday (later start than #1). Verifies asc order.
+    {
+      message: '[LIVE #2] Currently running — later start than #1.',
+      start_date: startOfDay(year, month, Math.max(1, todayDay - 1)),
+      end_date: endOfDay(year, month, todayDay + 5),
+      deleted_at: null,
+      created_by: ADMIN_ID,
+    },
+    // 3) UPCOMING — starts in the future. In liveAndUpcoming; NOT in current.
+    {
+      message: '[UPCOMING] Starts later this month.',
+      start_date: startOfDay(year, month, todayDay + 5),
+      end_date: endOfDay(year, month, todayDay + 10),
+      deleted_at: null,
+      created_by: ADMIN_ID,
+    },
+    // 4) PAST / expired — end_date already passed, not deleted. pastAnnouncements only.
+    {
+      message: '[PAST] Expired last month, not deleted.',
+      start_date: startOfDay(prevMonthYear, prevMonth, 1),
+      end_date: endOfDay(prevMonthYear, prevMonth, 5),
+      deleted_at: null,
+      created_by: ADMIN_ID,
+    },
+    // 5) DELETED but inside a live window — excluded from current & liveAndUpcoming.
+    {
+      message: '[DELETED+LIVE] Live window but soft-deleted.',
+      start_date: startOfDay(year, month, Math.max(1, todayDay - 2)),
+      end_date: endOfDay(year, month, todayDay + 2),
+      deleted_at: today,
+      created_by: ADMIN_ID,
+    },
+    // 6) DELETED and expired — the ambiguous pastAnnouncements case (see note below).
+    {
+      message: '[DELETED+PAST] Expired last month AND soft-deleted.',
+      start_date: startOfDay(prevMonthYear, prevMonth, 10),
+      end_date: endOfDay(prevMonthYear, prevMonth, 15),
+      deleted_at: today,
+      created_by: ADMIN_ID,
+    },
+  ];
+
+  await prisma.announcements.createMany({ data: announcements });
+
+  const total = await prisma.announcements.count();
+  console.log(`✅ Seeded ${total} announcements (all created_by the seeded ADMIN account).`);
+  console.log('   • 2 live (non-deleted), 1 upcoming, 1 past, 1 deleted+live, 1 deleted+past.');
+}
+
 async function main(): Promise<void> {
   requireDevelopmentDatabase();
   await seedStaffAccounts();
   await seedSessions();
+  await seedAnnouncements();
 }
 
 main()
