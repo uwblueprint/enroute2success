@@ -1,5 +1,4 @@
 import type { PrismaClient, Announcements } from '../../../generated/client';
-import { currentLocalMonthYear, monthRangeUtc } from '../../utils/datetime';
 
 export class AnnouncementService {
   async getCurrentAnnouncements(prisma: PrismaClient): Promise<Announcements[]> {

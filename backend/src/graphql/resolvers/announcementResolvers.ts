@@ -12,8 +12,8 @@ export const announcementResolvers = {
       return announcementService.getCurrentAnnouncements(ctx.prisma);
     },
 
-    liveAndUpcomingAnnouncements: async (_parent: unknown, args: null, ctx: GraphQLContext) => {
-      const caller = requireRole(ctx.auth, [PrismaStaffType.ADMIN]);
+    liveAndUpcomingAnnouncements: async (_parent: unknown, _args: null, ctx: GraphQLContext) => {
+      requireRole(ctx.auth, [PrismaStaffType.ADMIN]);
       const user = await announcementService.getLiveAndUpcomingAnnouncements(ctx.prisma);
 
       if (!user) {
@@ -25,8 +25,8 @@ export const announcementResolvers = {
       return user;
     },
 
-    pastAnnouncements: async (_parent: unknown, args: null, ctx: GraphQLContext) => {
-      const caller = requireRole(ctx.auth, [PrismaStaffType.ADMIN]);
+    pastAnnouncements: async (_parent: unknown, _args: null, ctx: GraphQLContext) => {
+      requireRole(ctx.auth, [PrismaStaffType.ADMIN]);
       const user = await announcementService.getPastAnnouncements(ctx.prisma);
 
       if (!user) {
