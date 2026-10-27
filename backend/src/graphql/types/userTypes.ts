@@ -23,6 +23,7 @@ export const userTypeDefs = `#graphql
     lastName: String!
     email: String!
     role: Role!
+    students: [Student!]!
   }
 
   input LoginInput {
@@ -40,6 +41,7 @@ export const userTypeDefs = `#graphql
 
   extend type Query {
     me: User
+    myStudents: [Student!]!
   }
 
   extend type Mutation {
