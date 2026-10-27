@@ -12,6 +12,7 @@ import {
   loginStudent,
   revokeRefreshToken,
   rotateRefreshToken,
+  selectActiveStudent,
   setUserPassword,
 } from '../../services/userService';
 import type {
@@ -117,6 +118,23 @@ export const userResolvers = {
 
         throw error;
       }
+    },
+
+    selectActiveStudent: async (
+      _parent: unknown,
+      args: { membershipId: number },
+      ctx: GraphQLContext
+    ) => {
+      const caller = requireRole(ctx.auth, [PrismaRole.STUDENT]);
+      const payload = await selectActiveStudent(ctx.prisma, caller.userId, args.membershipId);
+
+      if (!payload) {
+        throw new GraphQLError('You do not manage this student', {
+          extensions: { code: 'FORBIDDEN' },
+        });
+      }
+
+      return payload;
     },
 
     refreshAccessToken: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {

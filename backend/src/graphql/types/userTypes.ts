@@ -48,6 +48,8 @@ export const userTypeDefs = `#graphql
 
     loginStudent(input: LoginInput!): AuthPayload!
 
+    selectActiveStudent(membershipId: Int!): AuthPayload!
+
     refreshAccessToken: AuthPayload!
 
     logout: Boolean!
