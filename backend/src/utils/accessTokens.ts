@@ -46,6 +46,7 @@ export function verifyAccessToken(token: string): AuthenticatedUser {
       throw new Error('Invalid access-token role');
     }
 
+    // Tokens issued before profile selection was added have no active student.
     const activeStudentId: unknown = payload.activeStudentId ?? null;
 
     if (
