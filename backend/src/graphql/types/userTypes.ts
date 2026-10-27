@@ -46,6 +46,8 @@ export const userTypeDefs = `#graphql
       password: String!
     ): AuthPayload!
 
+    loginStudent(input: LoginInput!): AuthPayload!
+
     refreshAccessToken: AuthPayload!
 
     logout: Boolean!
