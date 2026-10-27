@@ -76,7 +76,12 @@ export const userResolvers = {
 
       setRefreshTokenCookie(ctx.res, session.refreshToken, session.refreshTokenExpiresAt);
 
-      return { accessToken: session.accessToken, user: session.user };
+      return {
+        accessToken: session.accessToken,
+        user: session.user,
+        managedStudents: [],
+        activeStudent: null,
+      };
     },
 
     refreshAccessToken: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
@@ -95,7 +100,12 @@ export const userResolvers = {
 
         setRefreshTokenCookie(ctx.res, session.refreshToken, session.refreshTokenExpiresAt);
 
-        return { accessToken: session.accessToken, user: session.user };
+        return {
+          accessToken: session.accessToken,
+          user: session.user,
+          managedStudents: [],
+          activeStudent: null,
+        };
       } catch {
         clearRefreshTokenCookie(ctx.res);
         throw new GraphQLError('Invalid or expired refresh token', {

@@ -23,9 +23,17 @@ export const userTypeDefs = `#graphql
     role: Role!
   }
 
+  input LoginInput {
+    email: String
+    membershipId: Int
+    password: String!
+  }
+
   type AuthPayload {
     accessToken: String!
     user: User!
+    managedStudents: [Student!]!
+    activeStudent: Student
   }
 
   extend type Query {
