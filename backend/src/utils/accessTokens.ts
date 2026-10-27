@@ -19,7 +19,7 @@ function isRole(value: unknown): value is Role {
 }
 
 export function generateAccessToken(user: AuthenticatedUser): string {
-  return jwt.sign({ role: user.role }, signingKey, {
+  return jwt.sign({ role: user.role, activeStudentId: user.activeStudentId }, signingKey, {
     algorithm: 'HS256',
     subject: user.userId,
     expiresIn: 15 * 60,
@@ -46,7 +46,20 @@ export function verifyAccessToken(token: string): AuthenticatedUser {
       throw new Error('Invalid access-token role');
     }
 
-    return { userId: payload.sub, role };
+    // Tokens issued before profile selection was added have no active student.
+    const activeStudentId: unknown = payload.activeStudentId ?? null;
+
+    if (
+      activeStudentId !== null &&
+      (typeof activeStudentId !== 'number' ||
+        !Number.isInteger(activeStudentId) ||
+        activeStudentId < -2147483648 ||
+        activeStudentId > 2147483647)
+    ) {
+      throw new Error('Invalid active-student claim');
+    }
+
+    return { userId: payload.sub, role, activeStudentId };
   } catch {
     throw new GraphQLError('Invalid or expired access token', {
       extensions: { code: 'UNAUTHENTICATED' },

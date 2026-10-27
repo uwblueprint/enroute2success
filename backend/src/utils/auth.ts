@@ -4,6 +4,7 @@ import type { Role } from '../../generated/client';
 export interface AuthenticatedUser {
   userId: string;
   role: Role;
+  activeStudentId: number | null;
 }
 
 export function requireRole(
