@@ -3,20 +3,25 @@ import { Role as PrismaRole } from '../../../generated/client';
 import type { Student } from '../../../generated/client';
 import type { GraphQLContext } from '../context';
 import {
+  completeAccountSetup,
   createStaffAccount,
   EmailInUseError,
+  InvalidAccountSetupInputError,
+  InvalidAccountSetupTokenError,
   InvalidStaffRoleError,
   InvalidLoginInputError,
   getManagedStudents,
   getUserWithStaff,
   loginStaff,
   loginStudent,
+  requestAccountSetup,
   revokeRefreshToken,
   rotateRefreshToken,
   selectActiveStudent,
   setUserPassword,
 } from '../../services/userService';
 import type {
+  CompleteAccountSetupInput,
   CreateStaffAccountInput,
   LoginInput,
   UserWithStaff,
@@ -164,6 +169,56 @@ export const userResolvers = {
       }
 
       return payload;
+    },
+
+    requestAccountSetup: async (
+      _parent: unknown,
+      args: { email: string; membershipId: number },
+      ctx: GraphQLContext
+    ) => {
+      try {
+        return await requestAccountSetup(ctx.prisma, args.email, args.membershipId);
+      } catch (error) {
+        if (error instanceof InvalidAccountSetupInputError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'BAD_USER_INPUT', field: error.field },
+          });
+        }
+
+        throw error;
+      }
+    },
+
+    completeAccountSetup: async (
+      _parent: unknown,
+      args: CompleteAccountSetupInput,
+      ctx: GraphQLContext
+    ) => {
+      try {
+        const session = await completeAccountSetup(ctx.prisma, args);
+        setRefreshTokenCookie(ctx.res, session.refreshToken, session.refreshTokenExpiresAt);
+
+        return {
+          accessToken: session.accessToken,
+          user: session.user,
+          managedStudents: session.managedStudents,
+          activeStudent: session.activeStudent,
+        };
+      } catch (error) {
+        if (error instanceof InvalidAccountSetupInputError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'BAD_USER_INPUT', field: error.field },
+          });
+        }
+
+        if (error instanceof InvalidAccountSetupTokenError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'BAD_USER_INPUT', field: 'token' },
+          });
+        }
+
+        throw error;
+      }
     },
 
     refreshAccessToken: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
