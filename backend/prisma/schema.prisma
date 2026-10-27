@@ -88,8 +88,28 @@ model User {
 
   refreshTokens refresh_tokens[]
   announcements Announcements[]
+  students      Student[]
 
   @@map("users")
+}
+
+model Student {
+  membership_id  Int      @id
+  manager_id     String?  @db.Uuid
+  first_name     String   @db.VarChar
+  last_name      String?  @db.VarChar
+  preferred_name String?  @db.VarChar
+  points         Int      @default(0)
+  allergies      String[] @db.VarChar
+  notes          String?  @db.VarChar
+  birth_date     DateTime @db.Date
+  created_at     DateTime @default(now()) @db.Timestamp(6)
+  updated_at     DateTime @default(now()) @updatedAt @db.Timestamp(6)
+
+  manager User? @relation(fields: [manager_id], references: [id], onDelete: SetNull)
+
+  @@index([manager_id])
+  @@map("students")
 }
 
 model StaffUsers {
