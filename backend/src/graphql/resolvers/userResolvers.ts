@@ -1,9 +1,10 @@
 import { GraphQLError } from 'graphql';
-import { StaffType as PrismaStaffType } from '../../../generated/client';
+import { Role as PrismaRole } from '../../../generated/client';
 import type { GraphQLContext } from '../context';
 import {
   createStaffAccount,
   EmailInUseError,
+  InvalidStaffRoleError,
   getUserWithStaff,
   loginStaff,
   revokeRefreshToken,
@@ -15,10 +16,11 @@ import { requireRole } from '../../utils/auth';
 import { clearRefreshTokenCookie, setRefreshTokenCookie } from '../../utils/refreshTokenCookies';
 
 export const userResolvers = {
-  StaffType: {
-    COACH: PrismaStaffType.COACH,
-    VOLUNTEER: PrismaStaffType.VOLUNTEER,
-    ADMIN: PrismaStaffType.ADMIN,
+  Role: {
+    COACH: PrismaRole.COACH,
+    VOLUNTEER: PrismaRole.VOLUNTEER,
+    ADMIN: PrismaRole.ADMIN,
+    STUDENT: PrismaRole.STUDENT,
   },
 
   User: {
@@ -26,15 +28,16 @@ export const userResolvers = {
 
     lastName: (user: UserWithStaff) => user.last_name,
 
-    role: (user: UserWithStaff) => user.staff?.staffType ?? null,
+    role: (user: UserWithStaff) => user.staff?.role ?? PrismaRole.STUDENT,
   },
 
   Query: {
     me: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
       const caller = requireRole(ctx.auth, [
-        PrismaStaffType.ADMIN,
-        PrismaStaffType.COACH,
-        PrismaStaffType.VOLUNTEER,
+        PrismaRole.ADMIN,
+        PrismaRole.COACH,
+        PrismaRole.VOLUNTEER,
+        PrismaRole.STUDENT,
       ]);
       const user = await getUserWithStaff(ctx.prisma, caller.userId);
 
@@ -111,11 +114,17 @@ export const userResolvers = {
       args: CreateStaffAccountInput,
       ctx: GraphQLContext
     ) => {
-      requireRole(ctx.auth, [PrismaStaffType.ADMIN]);
+      requireRole(ctx.auth, [PrismaRole.ADMIN]);
 
       try {
         return await createStaffAccount(ctx.prisma, args);
       } catch (error) {
+        if (error instanceof InvalidStaffRoleError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'BAD_USER_INPUT', field: 'role' },
+          });
+        }
+
         if (error instanceof EmailInUseError) {
           throw new GraphQLError('Email is already in use', {
             extensions: { code: 'BAD_USER_INPUT', field: 'email' },
@@ -131,7 +140,7 @@ export const userResolvers = {
       args: { userId: string; newPassword: string },
       ctx: GraphQLContext
     ) => {
-      requireRole(ctx.auth, [PrismaStaffType.ADMIN]);
+      requireRole(ctx.auth, [PrismaRole.ADMIN]);
 
       const updated = await setUserPassword(ctx.prisma, args.userId, args.newPassword);
 

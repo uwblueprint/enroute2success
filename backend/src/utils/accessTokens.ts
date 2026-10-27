@@ -1,8 +1,8 @@
 import 'dotenv/config';
 import { GraphQLError } from 'graphql';
 import jwt from 'jsonwebtoken';
-import { StaffType } from '../../generated/client';
-import type { AuthenticatedStaff } from './auth';
+import { Role } from '../../generated/client';
+import type { AuthenticatedUser } from './auth';
 
 const jwtSecret = process.env.JWT_SECRET;
 
@@ -12,15 +12,15 @@ if (!jwtSecret || Buffer.byteLength(jwtSecret, 'utf8') < 32) {
 
 const signingKey = Buffer.from(jwtSecret, 'utf8');
 
-export function generateStaffAccessToken(staff: AuthenticatedStaff): string {
-  return jwt.sign({ role: staff.role }, signingKey, {
+export function generateAccessToken(user: AuthenticatedUser): string {
+  return jwt.sign({ role: user.role }, signingKey, {
     algorithm: 'HS256',
-    subject: staff.userId,
+    subject: user.userId,
     expiresIn: 15 * 60,
   });
 }
 
-export function verifyStaffAccessToken(token: string): AuthenticatedStaff {
+export function verifyAccessToken(token: string): AuthenticatedUser {
   try {
     const payload = jwt.verify(token, signingKey, { algorithms: ['HS256'] });
 
@@ -36,7 +36,12 @@ export function verifyStaffAccessToken(token: string): AuthenticatedStaff {
 
     const role: unknown = payload.role;
 
-    if (role !== StaffType.ADMIN && role !== StaffType.COACH && role !== StaffType.VOLUNTEER) {
+    if (
+      role !== Role.ADMIN &&
+      role !== Role.COACH &&
+      role !== Role.VOLUNTEER &&
+      role !== Role.STUDENT
+    ) {
       throw new Error('Invalid access-token role');
     }
 

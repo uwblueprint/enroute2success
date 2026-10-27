@@ -34,7 +34,7 @@ The seed hashes each account's password separately with the application's Argon2
 | `admin@e2s.test`     | `ADMIN`      | Successful login; permitted account creation and password reset                  |
 | `coach@e2s.test`     | `COACH`      | Successful login; forbidden admin operations                                     |
 | `volunteer@e2s.test` | `VOLUNTEER`  | Successful login; forbidden admin operations                                     |
-| `nonstaff@e2s.test`  | None         | Staff login returns the same generic error as an unknown email or wrong password |
+| `nonstaff@e2s.test`  | `STUDENT`    | Staff login returns the same generic error as an unknown email or wrong password |
 
 The profiles use first name `Dev`, the corresponding role label as the last name, and placeholder phone
 number `0000000000`. These are fixtures, not real staff accounts. Their UUIDs are fixed in the seed script.
