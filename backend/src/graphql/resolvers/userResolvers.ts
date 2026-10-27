@@ -12,6 +12,7 @@ import {
   InvalidLoginInputError,
   getManagedStudents,
   getUserWithStaff,
+  linkManagedStudent,
   loginStaff,
   loginStudent,
   requestAccountSetup,
@@ -19,6 +20,8 @@ import {
   rotateRefreshToken,
   selectActiveStudent,
   setUserPassword,
+  StudentAlreadyClaimedError,
+  StudentNotFoundError,
 } from '../../services/userService';
 import type {
   CompleteAccountSetupInput,
@@ -169,6 +172,40 @@ export const userResolvers = {
       }
 
       return payload;
+    },
+
+    linkManagedStudent: async (
+      _parent: unknown,
+      args: { membershipId: number },
+      ctx: GraphQLContext
+    ) => {
+      const caller = requireRole(ctx.auth, [PrismaRole.STUDENT]);
+
+      try {
+        const payload = await linkManagedStudent(ctx.prisma, caller.userId, args.membershipId);
+
+        if (!payload) {
+          throw new GraphQLError('Unable to link a student for this account', {
+            extensions: { code: 'FORBIDDEN' },
+          });
+        }
+
+        return payload;
+      } catch (error) {
+        if (error instanceof StudentNotFoundError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'NOT_FOUND', field: 'membershipId' },
+          });
+        }
+
+        if (error instanceof StudentAlreadyClaimedError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'CONFLICT', field: 'membershipId' },
+          });
+        }
+
+        throw error;
+      }
     },
 
     requestAccountSetup: async (

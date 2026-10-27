@@ -52,6 +52,8 @@ export const userTypeDefs = `#graphql
 
     selectActiveStudent(membershipId: Int!): AuthPayload!
 
+    linkManagedStudent(membershipId: Int!): AuthPayload!
+
     requestAccountSetup(email: String!, membershipId: Int!): Boolean!
 
     completeAccountSetup(
