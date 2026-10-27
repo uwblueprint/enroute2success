@@ -4,6 +4,7 @@ import type { GraphQLContext } from '../context';
 import {
   createStaffAccount,
   EmailInUseError,
+  InvalidStaffRoleError,
   getUserWithStaff,
   loginStaff,
   revokeRefreshToken,
@@ -118,6 +119,12 @@ export const userResolvers = {
       try {
         return await createStaffAccount(ctx.prisma, args);
       } catch (error) {
+        if (error instanceof InvalidStaffRoleError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'BAD_USER_INPUT', field: 'role' },
+          });
+        }
+
         if (error instanceof EmailInUseError) {
           throw new GraphQLError('Email is already in use', {
             extensions: { code: 'BAD_USER_INPUT', field: 'email' },

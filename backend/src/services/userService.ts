@@ -38,6 +38,13 @@ export class EmailInUseError extends Error {
   }
 }
 
+export class InvalidStaffRoleError extends Error {
+  constructor() {
+    super('Staff accounts require an ADMIN, COACH, or VOLUNTEER role');
+    this.name = 'InvalidStaffRoleError';
+  }
+}
+
 export async function getUserWithStaff(
   prisma: PrismaClient,
   userId: string
@@ -220,6 +227,10 @@ export async function createStaffAccount(
   prisma: PrismaClient,
   input: CreateStaffAccountInput
 ): Promise<UserWithStaff> {
+  if (input.role === Role.STUDENT) {
+    throw new InvalidStaffRoleError();
+  }
+
   const passwordHash = await hashPassword(input.password);
 
   try {
