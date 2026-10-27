@@ -1,5 +1,6 @@
 import { GraphQLError } from 'graphql';
 import { Role as PrismaRole } from '../../../generated/client';
+import type { Student } from '../../../generated/client';
 import type { GraphQLContext } from '../context';
 import {
   createStaffAccount,
@@ -29,6 +30,14 @@ export const userResolvers = {
     lastName: (user: UserWithStaff) => user.last_name,
 
     role: (user: UserWithStaff) => user.staff?.role ?? PrismaRole.STUDENT,
+  },
+
+  Student: {
+    membershipId: (student: Student) => student.membership_id,
+    firstName: (student: Student) => student.first_name,
+    lastName: (student: Student) => student.last_name,
+    preferredName: (student: Student) => student.preferred_name,
+    birthDate: (student: Student) => student.birth_date.toISOString().slice(0, 10),
   },
 
   Query: {

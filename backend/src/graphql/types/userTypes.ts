@@ -6,6 +6,15 @@ export const userTypeDefs = `#graphql
     STUDENT
   }
 
+  type Student {
+    membershipId: Int!
+    firstName: String!
+    lastName: String
+    preferredName: String
+    points: Int!
+    birthDate: String!
+  }
+
   type User {
     id: UUID!
     firstName: String!
