@@ -9,6 +9,7 @@ import { expressMiddleware } from '@as-integrations/express5';
 import { schema } from './graphql';
 import { createContext, type GraphQLContext } from './graphql/context';
 import { prisma } from './prisma';
+import { getAccountSetupBaseUrl } from './utils/accountSetupTokens';
 
 const PORT = Number(process.env.PORT ?? 4000);
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? 'http://localhost:5173';
@@ -23,6 +24,9 @@ const requireJsonGraphQLPost: RequestHandler = (req, res, next) => {
 };
 
 async function main() {
+  // Reject invalid setup links before accepting requests.
+  getAccountSetupBaseUrl();
+
   const app = express();
   // Apollo Server drains this httpServer on shutdown for graceful exit.
   const httpServer = http.createServer(app);

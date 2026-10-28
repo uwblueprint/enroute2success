@@ -18,6 +18,45 @@ The seed requires `NODE_ENV=development` and a `DATABASE_URL` pointing to the `e
 5432 via host `postgres`, `localhost`, or `127.0.0.1`, so it can also be run from `backend/` on the host
 with `npm run db:seed`. It refuses other targets, including the `pern_db` configuration.
 
+Prisma CLI commands preserve a nonempty runtime `DATABASE_URL`, including the URL supplied by
+Docker Compose. `backend/.env` is a fallback for local CLI commands. Apply migrations to the same
+database used by the backend and seed; migrations applied to another local database do not prepare
+the Docker database.
+
+### Local recovery when `students` is missing
+
+The retained student migration drops and recreates the required staff role column, so it cannot be
+applied directly to a database with existing staff rows. For a local `e2s_db` that still has
+`staff_type` and no `role` enum or `students` table, this repair renames the enum without losing staff
+values and creates the same Student table, index, and foreign key as the migration:
+
+```sh
+docker compose exec backend npx prisma db execute --file prisma/patches/20261027004131_preserve_staff_roles.sql && \
+docker compose exec backend npx prisma migrate resolve --applied 20261027004131_student_tables_added && \
+docker compose exec backend npm run prisma:migrate:deploy && \
+docker compose exec backend npm run db:seed -- --auth-only --reset-auth
+```
+
+Run these commands in order and stop if one fails. `migrate resolve` records the student migration
+as applied only after the equivalent repair succeeds. The remaining migrations, including setup
+tokens, are then deployed normally. The original migration file and its checksum are unchanged.
+The repair aborts on an unexpected database/schema state and is intended for this local recovery;
+coordinate the migration-history fix before rolling the feature out to other environments.
+
+### Migration follow-up for the merge reviewer
+
+The local repair above is not run by `prisma migrate deploy`. The tracked
+`20261027004131_student_tables_added` migration still drops and recreates the required
+`staff_users.type` column and fails if staff rows already exist. This can happen even if Git merges
+the branch without conflicts.
+
+Before applying these migrations to a shared database, replace that conversion with one that preserves
+the existing staff roles. Renaming `staff_type` to `role` and adding the `student` enum value preserves
+the existing column and its values. Coordinate any change to this migration with databases that have
+already recorded it as applied; do not delete the migration history or mark changes applied before
+their equivalent schema changes are present. The tracked migration is left unchanged pending that
+coordination.
+
 ## Session fixtures
 
 Every run deletes all existing sessions and session series, then inserts one weekly series and seven
@@ -72,10 +111,21 @@ and can be redeemed once. Missing/claimed memberships and staff-account emails r
 sending a setup email. Invalid email syntax returns `BAD_USER_INPUT`.
 
 Set `ACCOUNT_SETUP_URL` in the backend environment to the frontend's password-setup page URL. The
-backend appends the `token` query parameter. If unset, the URL defaults to `/complete-account-setup`
-under `CORS_ORIGIN`, or `http://localhost:5173` when no origin is configured. Email uses the existing
-`SMTP_USER`, `SMTP_PASS`, and optional `EMAIL_FROM` configuration. Without SMTP credentials, the
-existing email service skips delivery. Delivery failures return the same confirmation response.
+backend appends the `token` query parameter. The setting is required unless `NODE_ENV=development`;
+only development can fall back to `http://localhost:5173/complete-account-setup`. For another local
+frontend port or path, set `ACCOUNT_SETUP_URL` explicitly. `CORS_ORIGIN` does not determine email links.
+
+The backend validates the setup URL at startup and refuses to start if a required URL is missing,
+relative, malformed, uses a protocol other than HTTP/HTTPS, or includes credentials. For example,
+configure a deployed frontend's actual setup page as:
+
+```dotenv
+ACCOUNT_SETUP_URL=https://app.example.com/complete-account-setup
+```
+
+Email uses the existing `SMTP_USER`, `SMTP_PASS`, and optional `EMAIL_FROM` configuration. Without SMTP
+credentials, the existing email service skips delivery. Delivery failures return the same confirmation
+response.
 
 The frontend reads the token and submits the account owner's details and password:
 
