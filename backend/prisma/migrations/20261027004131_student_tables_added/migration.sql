@@ -1,18 +1,6 @@
-/*
-  Warnings:
-
-  - Changed the type of `type` on the `staff_users` table. No cast exists, the column would be dropped and recreated, which cannot be done if there is data, since the column is required.
-
-*/
--- CreateEnum
-CREATE TYPE "role" AS ENUM ('admin', 'coach', 'volunteer', 'student');
-
--- AlterTable
-ALTER TABLE "staff_users" DROP COLUMN "type",
-ADD COLUMN     "type" "role" NOT NULL;
-
--- DropEnum
-DROP TYPE "staff_type";
+-- Preserve the existing staff role column and its values while extending the enum.
+ALTER TYPE "staff_type" RENAME TO "role";
+ALTER TYPE "role" ADD VALUE 'student';
 
 -- CreateTable
 CREATE TABLE "students" (
