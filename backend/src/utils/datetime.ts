@@ -112,3 +112,37 @@ export function currentLocalMonthYear(timeZone: string = ORG_TIMEZONE): {
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
   return { month: get('month'), year: get('year') };
 }
+
+function parseCalendarDate(dateStr: string): { year: number; month: number; day: number } {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
+  if (!match) {
+    throw new Error(`Invalid date: "${dateStr}" (expected YYYY-MM-DD)`);
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  // Reject impossible dates like 2026-13-40 by round-tripping through a real Date.
+  const probe = zonedWallTimeToUtc(year, month, day);
+  const back = new Intl.DateTimeFormat('en-CA', {
+    timeZone: ORG_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(probe);
+  if (back !== `${match[1]}-${match[2]}-${match[3]}`) {
+    throw new Error(`Invalid date: "${dateStr}"`);
+  }
+  return { year, month, day };
+}
+
+export function dayStartUtc(dateStr: string, timeZone: string = ORG_TIMEZONE): Date {
+  const { year, month, day } = parseCalendarDate(dateStr);
+  return zonedWallTimeToUtc(year, month, day, timeZone);
+}
+
+export function dayEndUtc(dateStr: string, timeZone: string = ORG_TIMEZONE): Date {
+  const { year, month, day } = parseCalendarDate(dateStr);
+  const startOfNextDay = zonedWallTimeToUtc(year, month, day + 1, timeZone);
+  return new Date(startOfNextDay.getTime() - 1);
+}
