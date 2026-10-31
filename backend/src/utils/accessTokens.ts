@@ -12,6 +12,12 @@ if (!jwtSecret || Buffer.byteLength(jwtSecret, 'utf8') < 32) {
 
 const signingKey = Buffer.from(jwtSecret, 'utf8');
 
+const validRoles: ReadonlySet<unknown> = new Set(Object.values(Role));
+
+function isRole(value: unknown): value is Role {
+  return validRoles.has(value);
+}
+
 export function generateAccessToken(user: AuthenticatedUser): string {
   return jwt.sign({ role: user.role }, signingKey, {
     algorithm: 'HS256',
@@ -35,9 +41,8 @@ export function verifyAccessToken(token: string): AuthenticatedUser {
     }
 
     const role: unknown = payload.role;
-    const validRoles = new Set<Role>(Object.values(Role) as Role[]);
 
-    if (!validRoles.has(role as Role)) {
+    if (!isRole(role)) {
       throw new Error('Invalid access-token role');
     }
 
