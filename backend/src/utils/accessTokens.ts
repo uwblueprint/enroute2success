@@ -35,13 +35,9 @@ export function verifyAccessToken(token: string): AuthenticatedUser {
     }
 
     const role: unknown = payload.role;
+    const validRoles = new Set<Role>(Object.values(Role) as Role[]);
 
-    if (
-      role !== Role.ADMIN &&
-      role !== Role.COACH &&
-      role !== Role.VOLUNTEER &&
-      role !== Role.STUDENT
-    ) {
+    if (!validRoles.has(role as Role)) {
       throw new Error('Invalid access-token role');
     }
 
