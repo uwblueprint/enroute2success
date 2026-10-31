@@ -73,6 +73,7 @@ export async function loginStaff(
   const accessToken = generateAccessToken({
     userId: user.id,
     role: user.staff.role,
+    activeStudentId: null,
   });
   const refreshToken = generateRefreshToken();
   const refreshTokenExpiresAt = getRefreshTokenExpiry();
@@ -162,6 +163,7 @@ export async function rotateRefreshToken(
       const accessToken = generateAccessToken({
         userId: storedToken.user.id,
         role: storedToken.user.staff.role,
+        activeStudentId: null,
       });
       const refreshToken = generateRefreshToken();
       const refreshTokenExpiresAt = getRefreshTokenExpiry();
