@@ -2,14 +2,14 @@ import type { ExpressContextFunctionArgument } from '@as-integrations/express5';
 import type { Request, Response } from 'express';
 import type { PrismaClient } from '../../generated/client';
 import { prisma } from '../prisma';
-import type { AuthenticatedStaff } from '../utils/auth';
-import { verifyStaffAccessToken } from '../utils/accessTokens';
+import type { AuthenticatedUser } from '../utils/auth';
+import { verifyAccessToken } from '../utils/accessTokens';
 
 export interface GraphQLContext {
   prisma: PrismaClient;
   req: Request;
   res: Response;
-  auth: AuthenticatedStaff | null;
+  auth: AuthenticatedUser | null;
 }
 
 export async function createContext({
@@ -17,7 +17,7 @@ export async function createContext({
   res,
 }: ExpressContextFunctionArgument): Promise<GraphQLContext> {
   const token = req.headers.authorization?.match(/^Bearer +(\S+)$/i)?.[1];
-  const auth = token ? verifyStaffAccessToken(token) : null;
+  const auth = token ? verifyAccessToken(token) : null;
 
   return { prisma, req, res, auth };
 }

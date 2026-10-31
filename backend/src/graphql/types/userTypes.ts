@@ -1,8 +1,9 @@
 export const userTypeDefs = `#graphql
-  enum StaffType {
+  enum Role {
     COACH
     VOLUNTEER
     ADMIN
+    STUDENT
   }
 
   type User {
@@ -10,7 +11,7 @@ export const userTypeDefs = `#graphql
     firstName: String!
     lastName: String!
     email: String!
-    role: StaffType
+    role: Role!
   }
 
   type AuthPayload {
@@ -38,7 +39,7 @@ export const userTypeDefs = `#graphql
       email: String!
       phoneNumber: String!
       password: String!
-      role: StaffType!
+      role: Role!
     ): User!
 
     adminSetPassword(

@@ -20,12 +20,13 @@ enum session_status {
   cancelled
 }
 
-enum StaffType {
+enum Role {
   ADMIN     @map("admin")
   COACH     @map("coach")
   VOLUNTEER @map("volunteer")
+  STUDENT   @map("student")
 
-  @@map("staff_type")
+  @@map("role")
 }
 
 model session {
@@ -113,8 +114,8 @@ model Student {
 }
 
 model StaffUsers {
-  id        String    @id @db.Uuid
-  staffType StaffType @map("type")
+  id   String @id @db.Uuid
+  role Role   @map("type")
 
   user User @relation(fields: [id], references: [id], onDelete: Cascade)
 

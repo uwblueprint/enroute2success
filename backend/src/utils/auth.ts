@@ -1,15 +1,15 @@
 import { GraphQLError } from 'graphql';
-import type { StaffType } from '../../generated/client';
+import type { Role } from '../../generated/client';
 
-export interface AuthenticatedStaff {
+export interface AuthenticatedUser {
   userId: string;
-  role: StaffType;
+  role: Role;
 }
 
 export function requireRole(
-  caller: AuthenticatedStaff | null,
-  allowedRoles: readonly StaffType[]
-): AuthenticatedStaff {
+  caller: AuthenticatedUser | null,
+  allowedRoles: readonly Role[]
+): AuthenticatedUser {
   if (caller === null) {
     throw new GraphQLError('Authentication required', {
       extensions: { code: 'UNAUTHENTICATED' },

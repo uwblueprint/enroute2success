@@ -21,7 +21,7 @@
  *  - One belonging to a `session_series`, and one one-off (null series).
  */
 import 'dotenv/config';
-import { StaffType } from '../../generated/client';
+import { Role } from '../../generated/client';
 import type { session_status, session_type } from '../../generated/client';
 import { ORG_TIMEZONE, zonedWallTimeToUtc, currentLocalMonthYear } from '../utils/datetime';
 import { hashPassword } from '../utils/passwords';
@@ -34,19 +34,19 @@ const accounts = [
     id: '00000000-0000-4000-8000-000000000001',
     email: 'admin@e2s.test',
     lastName: 'Admin',
-    role: StaffType.ADMIN,
+    role: Role.ADMIN,
   },
   {
     id: '00000000-0000-4000-8000-000000000002',
     email: 'coach@e2s.test',
     lastName: 'Coach',
-    role: StaffType.COACH,
+    role: Role.COACH,
   },
   {
     id: '00000000-0000-4000-8000-000000000003',
     email: 'volunteer@e2s.test',
     lastName: 'Volunteer',
-    role: StaffType.VOLUNTEER,
+    role: Role.VOLUNTEER,
   },
   {
     id: '00000000-0000-4000-8000-000000000004',
@@ -120,7 +120,7 @@ async function seedStaffAccounts(): Promise<void> {
             email: account.email,
             phone_number: '0000000000',
             password_hash: account.passwordHash,
-            ...(account.role === null ? {} : { staff: { create: { staffType: account.role } } }),
+            ...(account.role === null ? {} : { staff: { create: { role: account.role } } }),
           },
         });
         count += 1;

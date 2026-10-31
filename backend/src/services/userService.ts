@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { Prisma } from '../../generated/client';
-import type { PrismaClient, StaffType, StaffUsers, User } from '../../generated/client';
-import { generateStaffAccessToken } from '../utils/accessTokens';
+import { Prisma, Role } from '../../generated/client';
+import type { PrismaClient, StaffUsers, User } from '../../generated/client';
+import { generateAccessToken } from '../utils/accessTokens';
 import { hashPassword, verifyPassword } from '../utils/passwords';
 import {
   generateRefreshToken,
@@ -28,7 +28,7 @@ export type CreateStaffAccountInput = {
   email: string;
   phoneNumber: string;
   password: string;
-  role: StaffType;
+  role: Role;
 };
 
 export class EmailInUseError extends Error {
@@ -70,9 +70,9 @@ export async function loginStaff(
     return null;
   }
 
-  const accessToken = generateStaffAccessToken({
+  const accessToken = generateAccessToken({
     userId: user.id,
-    role: user.staff.staffType,
+    role: user.staff.role,
   });
   const refreshToken = generateRefreshToken();
   const refreshTokenExpiresAt = getRefreshTokenExpiry();
@@ -159,9 +159,9 @@ export async function rotateRefreshToken(
         return null;
       }
 
-      const accessToken = generateStaffAccessToken({
+      const accessToken = generateAccessToken({
         userId: storedToken.user.id,
-        role: storedToken.user.staff.staffType,
+        role: storedToken.user.staff.role,
       });
       const refreshToken = generateRefreshToken();
       const refreshTokenExpiresAt = getRefreshTokenExpiry();
@@ -229,7 +229,7 @@ export async function createStaffAccount(
         email: input.email,
         phone_number: input.phoneNumber,
         password_hash: passwordHash,
-        staff: { create: { staffType: input.role } },
+        staff: { create: { role: input.role } },
       },
       include: { staff: true },
     });
