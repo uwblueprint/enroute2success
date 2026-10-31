@@ -2,12 +2,19 @@ import { randomUUID } from 'node:crypto';
 import { Prisma, Role } from '../../generated/client';
 import type { PrismaClient, StaffUsers, Student, User } from '../../generated/client';
 import { generateAccessToken } from '../utils/accessTokens';
+import {
+  generateAccountSetupToken,
+  getAccountSetupTokenExpiry,
+  getAccountSetupUrl,
+  hashAccountSetupToken,
+} from '../utils/accountSetupTokens';
 import { hashPassword, verifyPassword } from '../utils/passwords';
 import {
   generateRefreshToken,
   getRefreshTokenExpiry,
   hashRefreshToken,
 } from '../utils/refreshTokens';
+import { sendSetPasswordEmail } from './emailService';
 
 // A database user with their staff relation loaded.
 // The staff relation can be null.
@@ -41,6 +48,33 @@ export type CreateStaffAccountInput = {
   password: string;
   role: Role;
 };
+
+export type CompleteAccountSetupInput = {
+  token: string;
+  newPassword: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  phoneNumber?: string | null;
+};
+
+type AccountSetupField = 'email' | 'newPassword' | 'firstName' | 'lastName' | 'phoneNumber';
+
+export class InvalidAccountSetupInputError extends Error {
+  constructor(
+    public readonly field: AccountSetupField,
+    message: string
+  ) {
+    super(message);
+    this.name = 'InvalidAccountSetupInputError';
+  }
+}
+
+export class InvalidAccountSetupTokenError extends Error {
+  constructor() {
+    super('Account setup link is invalid or expired');
+    this.name = 'InvalidAccountSetupTokenError';
+  }
+}
 
 export class EmailInUseError extends Error {
   constructor() {
@@ -259,6 +293,224 @@ export async function selectActiveStudent(
 
   // The students relation contains only profiles managed by this account.
   return createAuthPayload(user, user.students, membershipId);
+}
+
+export async function requestAccountSetup(
+  prisma: PrismaClient,
+  email: string,
+  membershipId: number
+): Promise<boolean> {
+  const setupEmail = email.trim();
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(setupEmail)) {
+    throw new InvalidAccountSetupInputError('email', 'Provide a valid email address');
+  }
+
+  const student = await prisma.student.findUnique({
+    where: { membership_id: membershipId },
+  });
+
+  if (!student || student.manager_id !== null) {
+    return true;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { email: setupEmail },
+    include: { staff: true },
+  });
+
+  if (user && !matchesLoginPortal(user, 'student')) {
+    return true;
+  }
+
+  const rawToken = generateAccountSetupToken();
+  const setupUrl = getAccountSetupUrl(rawToken);
+
+  try {
+    await prisma.accountSetupToken.create({
+      data: {
+        email: setupEmail,
+        membership_id: membershipId,
+        user_id: user?.id ?? null,
+        token_hash: hashAccountSetupToken(rawToken),
+        expires_at: getAccountSetupTokenExpiry(),
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      return true;
+    }
+
+    throw error;
+  }
+
+  try {
+    await sendSetPasswordEmail(setupEmail, setupUrl);
+  } catch {
+    console.error('[accountSetup] Failed to send setup email');
+  }
+
+  return true;
+}
+
+function requireAccountSetupField(
+  value: string | null | undefined,
+  field: AccountSetupField
+): string {
+  const trimmed = value?.trim();
+
+  if (!trimmed) {
+    throw new InvalidAccountSetupInputError(field, `${field} is required for a new account`);
+  }
+
+  return trimmed;
+}
+
+export async function completeAccountSetup(
+  prisma: PrismaClient,
+  input: CompleteAccountSetupInput
+): Promise<AuthSession> {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(input.token)) {
+    throw new InvalidAccountSetupTokenError();
+  }
+
+  const tokenHash = hashAccountSetupToken(input.token);
+  const pending = await prisma.accountSetupToken.findUnique({
+    where: { token_hash: tokenHash },
+  });
+
+  if (!pending || pending.used_at !== null || pending.expires_at.getTime() <= Date.now()) {
+    throw new InvalidAccountSetupTokenError();
+  }
+
+  if (input.newPassword.trim().length === 0) {
+    throw new InvalidAccountSetupInputError('newPassword', 'A password is required');
+  }
+
+  const passwordHash = await hashPassword(input.newPassword);
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await prisma.$transaction(
+        async (tx) => {
+          const setup = await tx.accountSetupToken.findUnique({
+            where: { token_hash: tokenHash },
+          });
+
+          if (!setup || setup.used_at !== null || setup.expires_at.getTime() <= Date.now()) {
+            throw new InvalidAccountSetupTokenError();
+          }
+
+          let user = await tx.user.findUnique({
+            where: { email: setup.email },
+            include: { staff: true },
+          });
+
+          if (user) {
+            await tx.$queryRaw`
+              SELECT "id" FROM "users"
+              WHERE "id" = ${user.id}::uuid
+              FOR UPDATE
+            `;
+            user = await tx.user.findUnique({
+              where: { id: user.id },
+              include: { staff: true },
+            });
+          }
+
+          if (
+            (setup.user_id !== null && setup.user_id !== user?.id) ||
+            (user && (user.email !== setup.email || !matchesLoginPortal(user, 'student')))
+          ) {
+            throw new InvalidAccountSetupTokenError();
+          }
+
+          const firstName = user
+            ? user.first_name
+            : requireAccountSetupField(input.firstName, 'firstName');
+          const lastName = user
+            ? user.last_name
+            : requireAccountSetupField(input.lastName, 'lastName');
+          const phoneNumber = user
+            ? user.phone_number
+            : requireAccountSetupField(input.phoneNumber, 'phoneNumber');
+
+          const consumed = await tx.accountSetupToken.updateMany({
+            where: { id: setup.id, used_at: null, expires_at: { gt: new Date() } },
+            data: { used_at: new Date() },
+          });
+
+          if (consumed.count !== 1) {
+            throw new InvalidAccountSetupTokenError();
+          }
+
+          user = user
+            ? await tx.user.update({
+                where: { id: user.id },
+                data: { password_hash: passwordHash },
+                include: { staff: true },
+              })
+            : await tx.user.create({
+                data: {
+                  id: randomUUID(),
+                  email: setup.email,
+                  first_name: firstName,
+                  last_name: lastName,
+                  phone_number: phoneNumber,
+                  password_hash: passwordHash,
+                },
+                include: { staff: true },
+              });
+
+          const claimed = await tx.student.updateMany({
+            where: { membership_id: setup.membership_id, manager_id: null },
+            data: { manager_id: user.id },
+          });
+
+          if (claimed.count !== 1) {
+            throw new InvalidAccountSetupTokenError();
+          }
+
+          await tx.refresh_tokens.updateMany({
+            where: { user_id: user.id, revoked_at: null },
+            data: { revoked_at: new Date() },
+          });
+
+          const students = await tx.student.findMany({
+            where: { manager_id: user.id },
+            orderBy: { membership_id: 'asc' },
+          });
+          const session = createSession(user, students, setup.membership_id);
+
+          if (!session) {
+            throw new InvalidAccountSetupTokenError();
+          }
+
+          await tx.refresh_tokens.create({
+            data: {
+              id: randomUUID(),
+              user_id: user.id,
+              token_hash: hashRefreshToken(session.refreshToken),
+              expires_at: session.refreshTokenExpiresAt,
+            },
+          });
+
+          return session;
+        },
+        { isolationLevel: 'ReadCommitted' }
+      );
+    } catch (error) {
+      if (
+        attempt < 2 &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === 'P2002' || error.code === 'P2034')
+      ) {
+        continue;
+      }
+
+      throw error;
+    }
+  }
 }
 
 export async function rotateRefreshToken(

@@ -52,6 +52,16 @@ export const userTypeDefs = `#graphql
 
     selectActiveStudent(membershipId: Int!): AuthPayload!
 
+    requestAccountSetup(email: String!, membershipId: Int!): Boolean!
+
+    completeAccountSetup(
+      token: String!
+      newPassword: String!
+      firstName: String
+      lastName: String
+      phoneNumber: String
+    ): AuthPayload!
+
     refreshAccessToken: AuthPayload!
 
     logout: Boolean!
