@@ -3,11 +3,15 @@ import { defineConfig, env } from 'prisma/config';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-// Prisma 7 does not auto-load .env. Load it next to this config file (not cwd),
-// and override empty/stale shell values so `env('DATABASE_URL')` can resolve.
+// Keep an explicit runtime URL, especially Docker's postgres hostname/database.
+// Local CLI commands fall back to the .env next to this config file (not cwd).
+if (process.env.DATABASE_URL?.trim() === '') {
+  delete process.env.DATABASE_URL;
+}
+
 config({
   path: join(dirname(fileURLToPath(import.meta.url)), '.env'),
-  override: true,
+  override: false,
 });
 
 export default defineConfig({
