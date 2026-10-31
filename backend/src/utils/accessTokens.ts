@@ -50,10 +50,7 @@ export function verifyAccessToken(token: string): AuthenticatedUser {
 
     if (
       activeStudentId !== null &&
-      (typeof activeStudentId !== 'number' ||
-        !Number.isInteger(activeStudentId) ||
-        activeStudentId < -2147483648 ||
-        activeStudentId > 2147483647)
+      (typeof activeStudentId !== 'number' || !Number.isInteger(activeStudentId))
     ) {
       throw new Error('Invalid active-student claim');
     }
