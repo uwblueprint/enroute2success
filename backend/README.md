@@ -171,3 +171,31 @@ expired, used, or no-longer-eligible links return `BAD_USER_INPUT` on `token`. N
 deferred until this completion step; no placeholder names, contact details, or passwords are stored.
 
 The frontend page and live email delivery still need integration verification.
+
+## Link another managed student
+
+An authenticated student/parent account can claim an unclaimed membership:
+
+```graphql
+mutation {
+  linkManagedStudent(membershipId: 456) {
+    accessToken
+    managedStudents {
+      membershipId
+      firstName
+    }
+    activeStudent {
+      membershipId
+      firstName
+    }
+  }
+}
+```
+
+The claim requires only the membership ID and succeeds only while `manager_id` is null. The response
+contains all managed students in membership order and a new access token with the same User ID and
+the newly linked student active. Refresh-token records and cookies are unchanged.
+
+Missing memberships return `NOT_FOUND`; already-linked memberships return `CONFLICT`, including
+memberships already managed by the caller. Anonymous requests return `UNAUTHENTICATED`, and staff
+accounts return `FORBIDDEN`. No new migration is needed for this mutation.

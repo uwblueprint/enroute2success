@@ -97,6 +97,20 @@ export class InvalidLoginInputError extends Error {
   }
 }
 
+export class StudentNotFoundError extends Error {
+  constructor() {
+    super('Student not found');
+    this.name = 'StudentNotFoundError';
+  }
+}
+
+export class StudentAlreadyClaimedError extends Error {
+  constructor() {
+    super('Student is already linked to an account');
+    this.name = 'StudentAlreadyClaimedError';
+  }
+}
+
 export async function getUserWithStaff(
   prisma: PrismaClient,
   userId: string
@@ -291,8 +305,63 @@ export async function selectActiveStudent(
     return null;
   }
 
-  // The students relation contains only profiles managed by this account.
   return createAuthPayload(user, user.students, membershipId);
+}
+
+export async function linkManagedStudent(
+  prisma: PrismaClient,
+  userId: string,
+  membershipId: number
+): Promise<AuthPayload | null> {
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`
+        SELECT "id" FROM "users"
+        WHERE "id" = ${userId}::uuid
+        FOR UPDATE
+      `;
+
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        include: { staff: true },
+      });
+
+      if (!user || !matchesLoginPortal(user, 'student')) {
+        return null;
+      }
+
+      const claimed = await tx.student.updateMany({
+        where: { membership_id: membershipId, manager_id: null },
+        data: { manager_id: userId },
+      });
+
+      if (claimed.count !== 1) {
+        const student = await tx.student.findUnique({
+          where: { membership_id: membershipId },
+          select: { membership_id: true },
+        });
+
+        if (!student) {
+          throw new StudentNotFoundError();
+        }
+
+        throw new StudentAlreadyClaimedError();
+      }
+
+      const students = await tx.student.findMany({
+        where: { manager_id: userId },
+        orderBy: { membership_id: 'asc' },
+      });
+      const payload = createAuthPayload(user, students, membershipId);
+
+      if (!payload) {
+        throw new Error('Unable to load the linked student');
+      }
+
+      return payload;
+    },
+    { isolationLevel: 'ReadCommitted' }
+  );
 }
 
 export async function requestAccountSetup(
