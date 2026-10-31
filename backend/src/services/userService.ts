@@ -15,11 +15,14 @@ export type UserWithStaff = User & {
   staff: StaffUsers | null;
 };
 
-export type AuthSession = {
+export type AuthPayload = {
   accessToken: string;
   user: UserWithStaff;
   managedStudents: Student[];
   activeStudent: Student | null;
+};
+
+export type AuthSession = AuthPayload & {
   refreshToken: string;
   refreshTokenExpiresAt: Date;
 };
@@ -78,11 +81,11 @@ function matchesLoginPortal(user: UserWithStaff, portal: LoginPortal): boolean {
     : user.staff === null;
 }
 
-function createSession(
+function createAuthPayload(
   user: UserWithStaff,
   students: Student[],
   membershipId?: number
-): AuthSession | null {
+): AuthPayload | null {
   if (user.staff?.role === Role.STUDENT) {
     return null;
   }
@@ -110,6 +113,22 @@ function createSession(
     user,
     managedStudents,
     activeStudent,
+  };
+}
+
+function createSession(
+  user: UserWithStaff,
+  students: Student[],
+  membershipId?: number
+): AuthSession | null {
+  const payload = createAuthPayload(user, students, membershipId);
+
+  if (!payload) {
+    return null;
+  }
+
+  return {
+    ...payload,
     refreshToken: generateRefreshToken(),
     refreshTokenExpiresAt: getRefreshTokenExpiry(),
   };
@@ -215,6 +234,24 @@ export async function loginStudent(
   }
 
   return loginAccount(prisma, user, password, 'student', membershipId ?? undefined);
+}
+
+export async function selectActiveStudent(
+  prisma: PrismaClient,
+  userId: string,
+  membershipId: number
+): Promise<AuthPayload | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { staff: true, students: { orderBy: { membership_id: 'asc' } } },
+  });
+
+  if (!user || !matchesLoginPortal(user, 'student')) {
+    return null;
+  }
+
+  // The students relation contains only profiles managed by this account.
+  return createAuthPayload(user, user.students, membershipId);
 }
 
 export async function rotateRefreshToken(
