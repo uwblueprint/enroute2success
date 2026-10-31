@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, Role } from '../../generated/client';
-import type { PrismaClient, StaffUsers, User } from '../../generated/client';
+import type { PrismaClient, StaffUsers, Student, User } from '../../generated/client';
 import { generateAccessToken } from '../utils/accessTokens';
 import { hashPassword, verifyPassword } from '../utils/passwords';
 import {
@@ -15,11 +15,19 @@ export type UserWithStaff = User & {
   staff: StaffUsers | null;
 };
 
-export type StaffSession = {
+export type AuthSession = {
   accessToken: string;
   user: UserWithStaff;
+  managedStudents: Student[];
+  activeStudent: Student | null;
   refreshToken: string;
   refreshTokenExpiresAt: Date;
+};
+
+export type LoginInput = {
+  email?: string | null;
+  membershipId?: number | null;
+  password: string;
 };
 
 export type CreateStaffAccountInput = {
@@ -38,6 +46,20 @@ export class EmailInUseError extends Error {
   }
 }
 
+export class InvalidStaffRoleError extends Error {
+  constructor() {
+    super('Staff accounts require an ADMIN, COACH, or VOLUNTEER role');
+    this.name = 'InvalidStaffRoleError';
+  }
+}
+
+export class InvalidLoginInputError extends Error {
+  constructor() {
+    super('Provide exactly one of email or membershipId');
+    this.name = 'InvalidLoginInputError';
+  }
+}
+
 export async function getUserWithStaff(
   prisma: PrismaClient,
   userId: string
@@ -48,16 +70,58 @@ export async function getUserWithStaff(
   });
 }
 
-export async function loginStaff(
-  prisma: PrismaClient,
-  email: string,
-  password: string
-): Promise<StaffSession | null> {
-  const user = await prisma.user.findUnique({
-    where: { email },
-    include: { staff: true },
-  });
+type LoginPortal = 'staff' | 'student';
 
+function matchesLoginPortal(user: UserWithStaff, portal: LoginPortal): boolean {
+  return portal === 'staff'
+    ? user.staff !== null && user.staff.role !== Role.STUDENT
+    : user.staff === null;
+}
+
+function createSession(
+  user: UserWithStaff,
+  students: Student[],
+  membershipId?: number
+): AuthSession | null {
+  if (user.staff?.role === Role.STUDENT) {
+    return null;
+  }
+
+  const managedStudents = user.staff ? [] : students;
+  let activeStudent: Student | null = null;
+
+  if (membershipId !== undefined) {
+    activeStudent =
+      managedStudents.find((student) => student.membership_id === membershipId) ?? null;
+
+    if (activeStudent === null) {
+      return null;
+    }
+  } else if (managedStudents.length === 1) {
+    activeStudent = managedStudents[0];
+  }
+
+  return {
+    accessToken: generateAccessToken({
+      userId: user.id,
+      role: user.staff?.role ?? Role.STUDENT,
+      activeStudentId: activeStudent?.membership_id ?? null,
+    }),
+    user,
+    managedStudents,
+    activeStudent,
+    refreshToken: generateRefreshToken(),
+    refreshTokenExpiresAt: getRefreshTokenExpiry(),
+  };
+}
+
+async function loginAccount(
+  prisma: PrismaClient,
+  user: UserWithStaff | null,
+  password: string,
+  portal: LoginPortal,
+  membershipId?: number
+): Promise<AuthSession | null> {
   let passwordMatches = false;
 
   if (user) {
@@ -66,55 +130,97 @@ export async function loginStaff(
     await hashPassword(password);
   }
 
-  if (!user || !user.staff || !passwordMatches) {
+  if (!user || !passwordMatches || !matchesLoginPortal(user, portal)) {
     return null;
   }
 
-  const accessToken = generateAccessToken({
-    userId: user.id,
-    role: user.staff.role,
-    activeStudentId: null,
-  });
-  const refreshToken = generateRefreshToken();
-  const refreshTokenExpiresAt = getRefreshTokenExpiry();
-
-  const issued = await prisma.$transaction(
+  return prisma.$transaction(
     async (tx) => {
-      const [currentUser] = await tx.$queryRaw<Array<{ password_hash: string }>>`
-        SELECT "password_hash" FROM "users"
+      await tx.$queryRaw`
+        SELECT "id" FROM "users"
         WHERE "id" = ${user.id}::uuid
         FOR UPDATE
       `;
 
-      if (currentUser?.password_hash !== user.password_hash) {
-        return false;
+      const currentUser = await tx.user.findUnique({
+        where: { id: user.id },
+        include: { staff: true, students: { orderBy: { membership_id: 'asc' } } },
+      });
+
+      if (
+        !currentUser ||
+        currentUser.password_hash !== user.password_hash ||
+        !matchesLoginPortal(currentUser, portal)
+      ) {
+        return null;
+      }
+
+      const session = createSession(currentUser, currentUser.students, membershipId);
+
+      if (!session) {
+        return null;
       }
 
       await tx.refresh_tokens.create({
         data: {
           id: randomUUID(),
           user_id: user.id,
-          token_hash: hashRefreshToken(refreshToken),
-          expires_at: refreshTokenExpiresAt,
+          token_hash: hashRefreshToken(session.refreshToken),
+          expires_at: session.refreshTokenExpiresAt,
         },
       });
 
-      return true;
+      return session;
     },
     { isolationLevel: 'ReadCommitted' }
   );
+}
 
-  if (!issued) {
-    return null;
+export async function loginStaff(
+  prisma: PrismaClient,
+  email: string,
+  password: string
+): Promise<AuthSession | null> {
+  const user = await prisma.user.findUnique({
+    where: { email },
+    include: { staff: true },
+  });
+
+  return loginAccount(prisma, user, password, 'staff');
+}
+
+export async function loginStudent(
+  prisma: PrismaClient,
+  input: LoginInput
+): Promise<AuthSession | null> {
+  const { email, membershipId, password } = input;
+
+  if ((email != null) === (membershipId != null)) {
+    throw new InvalidLoginInputError();
   }
 
-  return { accessToken, user, refreshToken, refreshTokenExpiresAt };
+  let user: UserWithStaff | null;
+
+  if (email != null) {
+    user = await prisma.user.findUnique({
+      where: { email },
+      include: { staff: true },
+    });
+  } else {
+    const student = await prisma.student.findUnique({
+      where: { membership_id: membershipId! },
+      include: { manager: { include: { staff: true } } },
+    });
+    user = student?.manager ?? null;
+  }
+
+  return loginAccount(prisma, user, password, 'student', membershipId ?? undefined);
 }
 
 export async function rotateRefreshToken(
   prisma: PrismaClient,
   rawToken: string
-): Promise<StaffSession | null> {
+): Promise<AuthSession | null> {
   const tokenHash = hashRefreshToken(rawToken);
 
   return prisma.$transaction(
@@ -136,7 +242,9 @@ export async function rotateRefreshToken(
 
       const storedToken = await tx.refresh_tokens.findUnique({
         where: { token_hash: tokenHash },
-        include: { user: { include: { staff: true } } },
+        include: {
+          user: { include: { staff: true, students: { orderBy: { membership_id: 'asc' } } } },
+        },
       });
 
       if (!storedToken) {
@@ -156,17 +264,15 @@ export async function rotateRefreshToken(
         return null;
       }
 
-      if (storedToken.expires_at.getTime() <= now.getTime() || !storedToken.user.staff) {
+      if (storedToken.expires_at.getTime() <= now.getTime()) {
         return null;
       }
 
-      const accessToken = generateAccessToken({
-        userId: storedToken.user.id,
-        role: storedToken.user.staff.role,
-        activeStudentId: null,
-      });
-      const refreshToken = generateRefreshToken();
-      const refreshTokenExpiresAt = getRefreshTokenExpiry();
+      const session = createSession(storedToken.user, storedToken.user.students);
+
+      if (!session) {
+        return null;
+      }
 
       await tx.refresh_tokens.update({
         where: { id: storedToken.id },
@@ -176,12 +282,12 @@ export async function rotateRefreshToken(
         data: {
           id: randomUUID(),
           user_id: storedToken.user_id,
-          token_hash: hashRefreshToken(refreshToken),
-          expires_at: refreshTokenExpiresAt,
+          token_hash: hashRefreshToken(session.refreshToken),
+          expires_at: session.refreshTokenExpiresAt,
         },
       });
 
-      return { accessToken, user: storedToken.user, refreshToken, refreshTokenExpiresAt };
+      return session;
     },
     { isolationLevel: 'ReadCommitted' }
   );
@@ -220,6 +326,10 @@ export async function createStaffAccount(
   prisma: PrismaClient,
   input: CreateStaffAccountInput
 ): Promise<UserWithStaff> {
+  if (input.role === Role.STUDENT) {
+    throw new InvalidStaffRoleError();
+  }
+
   const passwordHash = await hashPassword(input.password);
 
   try {
