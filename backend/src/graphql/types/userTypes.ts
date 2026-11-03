@@ -12,6 +12,8 @@ export const userTypeDefs = `#graphql
     lastName: String
     preferredName: String
     points: Int!
+    notes: String
+    allergies: [String!]!
     birthDate: String!
   }
 
