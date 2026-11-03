@@ -7,7 +7,7 @@ import {
   createStaffAccount,
   EmailInUseError,
   InvalidAccountSetupInputError,
-  InvalidStaffRoleError,
+  InvalidAccountSetupTokenError,
   InvalidLoginInputError,
   getManagedStudents,
   getStudents,

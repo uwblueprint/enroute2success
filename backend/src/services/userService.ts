@@ -395,128 +395,115 @@ export async function completeAccountSetup(
 
   const passwordHash = await hashPassword(input.newPassword);
 
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await prisma.$transaction(
-        async (tx) => {
-          const setup = await tx.accountSetupToken.findUnique({
-            where: { token_hash: tokenHash },
-          });
+  return prisma.$transaction(
+    async (tx) => {
+      const setup = await tx.accountSetupToken.findUnique({
+        where: { token_hash: tokenHash },
+      });
 
-          if (!setup || setup.used_at !== null || setup.expires_at.getTime() <= Date.now()) {
-            throw new InvalidAccountSetupTokenError();
-          }
-
-          let user = await tx.user.findUnique({
-            where: { email: setup.email },
-            include: { staff: true },
-          });
-
-          if (user) {
-            await tx.$queryRaw`
-              SELECT "id" FROM "users"
-              WHERE "id" = ${user.id}::uuid
-              FOR UPDATE
-            `;
-            user = await tx.user.findUnique({
-              where: { id: user.id },
-              include: { staff: true },
-            });
-          }
-
-          if (
-            (setup.user_id !== null && setup.user_id !== user?.id) ||
-            (user && (user.email !== setup.email || !matchesLoginPortal(user, 'student')))
-          ) {
-            throw new InvalidAccountSetupTokenError();
-          }
-
-          const firstName = user
-            ? user.first_name
-            : requireAccountSetupField(input.firstName, 'firstName');
-          const lastName = user
-            ? user.last_name
-            : requireAccountSetupField(input.lastName, 'lastName');
-          const phoneNumber = user
-            ? user.phone_number
-            : requireAccountSetupField(input.phoneNumber, 'phoneNumber');
-
-          const consumed = await tx.accountSetupToken.updateMany({
-            where: { id: setup.id, used_at: null, expires_at: { gt: new Date() } },
-            data: { used_at: new Date() },
-          });
-
-          if (consumed.count !== 1) {
-            throw new InvalidAccountSetupTokenError();
-          }
-
-          user = user
-            ? await tx.user.update({
-                where: { id: user.id },
-                data: { password_hash: passwordHash },
-                include: { staff: true },
-              })
-            : await tx.user.create({
-                data: {
-                  id: randomUUID(),
-                  email: setup.email,
-                  first_name: firstName,
-                  last_name: lastName,
-                  phone_number: phoneNumber,
-                  password_hash: passwordHash,
-                },
-                include: { staff: true },
-              });
-
-          const claimed = await tx.student.updateMany({
-            where: { membership_id: setup.membership_id, manager_id: null },
-            data: { manager_id: user.id },
-          });
-
-          if (claimed.count !== 1) {
-            throw new InvalidAccountSetupTokenError();
-          }
-
-          await tx.refresh_tokens.updateMany({
-            where: { user_id: user.id, revoked_at: null },
-            data: { revoked_at: new Date() },
-          });
-
-          const students = await tx.student.findMany({
-            where: { manager_id: user.id },
-            orderBy: { membership_id: 'asc' },
-          });
-          const session = createSession(user, students, setup.membership_id);
-
-          if (!session) {
-            throw new InvalidAccountSetupTokenError();
-          }
-
-          await tx.refresh_tokens.create({
-            data: {
-              id: randomUUID(),
-              user_id: user.id,
-              token_hash: hashRefreshToken(session.refreshToken),
-              expires_at: session.refreshTokenExpiresAt,
-            },
-          });
-
-          return session;
-        },
-        { isolationLevel: 'ReadCommitted' }
-      );
-    } catch (error) {
-      if (
-        attempt < 2 &&
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        (error.code === 'P2002' || error.code === 'P2034')
-      ) {
-        continue;
+      if (!setup || setup.used_at !== null || setup.expires_at.getTime() <= Date.now()) {
+        throw new InvalidAccountSetupTokenError();
       }
 
-      throw error;
-    }
-  }
+      const existingUser = await tx.user.findUnique({
+        where: { email: setup.email },
+        include: { staff: true },
+      });
+
+      if (
+        (setup.user_id !== null && setup.user_id !== existingUser?.id) ||
+        (existingUser && !matchesLoginPortal(existingUser, 'student'))
+      ) {
+        throw new InvalidAccountSetupTokenError();
+      }
+
+      const firstName = existingUser
+        ? existingUser.first_name
+        : requireAccountSetupField(input.firstName, 'firstName');
+      const lastName = existingUser
+        ? existingUser.last_name
+        : requireAccountSetupField(input.lastName, 'lastName');
+      const phoneNumber = existingUser
+        ? existingUser.phone_number
+        : requireAccountSetupField(input.phoneNumber, 'phoneNumber');
+
+      // Keep relations out of this query so Prisma uses an atomic database upsert.
+      // Acquire the account's write lock before consuming the token in every path.
+      const account = await tx.user.upsert({
+        where: { email: setup.email },
+        create: {
+          id: randomUUID(),
+          email: setup.email,
+          first_name: firstName,
+          last_name: lastName,
+          phone_number: phoneNumber,
+          password_hash: passwordHash,
+        },
+        update: { password_hash: passwordHash },
+        select: { id: true },
+      });
+
+      const user = await tx.user.findUnique({
+        where: { id: account.id },
+        include: { staff: true },
+      });
+
+      // Another request may have created the email after the initial lookup.
+      if (
+        !user ||
+        (setup.user_id !== null && setup.user_id !== user.id) ||
+        user.email !== setup.email ||
+        !matchesLoginPortal(user, 'student')
+      ) {
+        throw new InvalidAccountSetupTokenError();
+      }
+
+      const consumed = await tx.accountSetupToken.updateMany({
+        where: { id: setup.id, used_at: null, expires_at: { gt: new Date() } },
+        data: { used_at: new Date() },
+      });
+
+      if (consumed.count !== 1) {
+        throw new InvalidAccountSetupTokenError();
+      }
+
+      const claimed = await tx.student.updateMany({
+        where: { membership_id: setup.membership_id, manager_id: null },
+        data: { manager_id: user.id },
+      });
+
+      if (claimed.count !== 1) {
+        throw new InvalidAccountSetupTokenError();
+      }
+
+      await tx.refresh_tokens.updateMany({
+        where: { user_id: user.id, revoked_at: null },
+        data: { revoked_at: new Date() },
+      });
+
+      const students = await tx.student.findMany({
+        where: { manager_id: user.id },
+        orderBy: { membership_id: 'asc' },
+      });
+      const session = createSession(user, students, setup.membership_id);
+
+      if (!session) {
+        throw new InvalidAccountSetupTokenError();
+      }
+
+      await tx.refresh_tokens.create({
+        data: {
+          id: randomUUID(),
+          user_id: user.id,
+          token_hash: hashRefreshToken(session.refreshToken),
+          expires_at: session.refreshTokenExpiresAt,
+        },
+      });
+
+      return session;
+    },
+    { isolationLevel: 'ReadCommitted' }
+  );
 }
 
 export async function rotateRefreshToken(
