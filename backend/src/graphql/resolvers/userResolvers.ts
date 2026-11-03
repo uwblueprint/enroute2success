@@ -5,7 +5,6 @@ import type { GraphQLContext } from '../context';
 import {
   createStaffAccount,
   EmailInUseError,
-  InvalidStaffRoleError,
   InvalidLoginInputError,
   getUserWithStaff,
   loginStaff,
