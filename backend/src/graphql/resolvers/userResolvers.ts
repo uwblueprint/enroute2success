@@ -47,7 +47,11 @@ export const userResolvers = {
         PrismaRole.STUDENT,
       ]);
 
-      if (user.id !== caller.userId && !(caller.role === PrismaRole.ADMIN) && !(caller.role === PrismaRole.COACH)) {
+      if (
+        user.id !== caller.userId &&
+        !(caller.role === PrismaRole.ADMIN) &&
+        !(caller.role === PrismaRole.COACH)
+      ) {
         throw new GraphQLError('You can only view your own managed students', {
           extensions: { code: 'FORBIDDEN' },
         });
