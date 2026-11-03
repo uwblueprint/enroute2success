@@ -41,6 +41,7 @@ export const userTypeDefs = `#graphql
 
   extend type Query {
     me: User
+    allStudents: [Student!]!
     myStudents: [Student!]!
   }
 

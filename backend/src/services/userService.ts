@@ -80,6 +80,12 @@ export async function getManagedStudents(prisma: PrismaClient, userId: string): 
   });
 }
 
+export async function getStudents(prisma: PrismaClient): Promise<Student[]> {
+  return prisma.student.findMany({
+    orderBy: { membership_id: 'asc' },
+  });
+}
+
 type LoginPortal = 'staff' | 'student';
 
 function matchesLoginPortal(user: UserWithStaff, portal: LoginPortal): boolean {
