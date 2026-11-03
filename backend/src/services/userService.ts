@@ -246,7 +246,7 @@ export async function selectActiveStudent(
     include: { staff: true, students: { orderBy: { membership_id: 'asc' } } },
   });
 
-  if (!user || !matchesLoginPortal(user, 'student')) {
+  if (!user) {
     return null;
   }
 
