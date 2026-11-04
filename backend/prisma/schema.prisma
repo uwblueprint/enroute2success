@@ -46,6 +46,7 @@ model session {
   updated_at        DateTime       @default(now()) @db.Timestamp(6)
 
   session_series session_series? @relation(fields: [session_series_id], references: [id])
+  feedback       Feedback[]
 
   @@index([start_datetime])
   @@map("session")
@@ -107,7 +108,8 @@ model Student {
   created_at     DateTime @default(now()) @db.Timestamp(6)
   updated_at     DateTime @default(now()) @updatedAt @db.Timestamp(6)
 
-  manager User? @relation(fields: [manager_id], references: [id], onDelete: SetNull)
+  manager  User?      @relation(fields: [manager_id], references: [id], onDelete: SetNull)
+  feedback Feedback[]
 
   @@index([manager_id])
   @@map("students")
@@ -119,10 +121,34 @@ model StaffUsers {
 
   user User @relation(fields: [id], references: [id], onDelete: Cascade)
 
+  feedback_given   Feedback[] @relation("FeedbackGiver")
+  feedback_updated Feedback[] @relation("FeedbackUpdater")
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   @@map("staff_users")
+}
+
+model Feedback {
+  id         String   @id @default(uuid()) @db.Uuid
+  receiver   Int
+  giver      String   @db.Uuid
+  updated_by String   @db.Uuid
+  session_id String   @db.Uuid
+  text       String
+  created_at DateTime @default(now()) @db.Timestamp(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamp(6)
+
+  student Student    @relation(fields: [receiver], references: [membership_id])
+  author  StaffUsers @relation("FeedbackGiver", fields: [giver], references: [id])
+  updater StaffUsers @relation("FeedbackUpdater", fields: [updated_by], references: [id])
+  session session    @relation(fields: [session_id], references: [id], onDelete: Restrict)
+
+  @@unique([receiver, session_id])
+  @@index([session_id])
+  @@index([receiver])
+  @@map("feedback_log")
 }
 
 model refresh_tokens {
