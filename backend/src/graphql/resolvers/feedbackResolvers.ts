@@ -95,4 +95,13 @@ export const feedbackResolvers = {
       }
     },
   },
+
+  Feedback: {
+    studentId: (feedback: Feedback) => feedback.receiver,
+    giverId: (feedback: Feedback) => feedback.giver,
+    updatedById: (feedback: Feedback) => feedback.updated_by,
+    sessionId: (feedback: Feedback) => feedback.session_id,
+    createdAt: (feedback: Feedback) => feedback.created_at.toISOString(),
+    updatedAt: (feedback: Feedback) => feedback.updated_at.toISOString(),
+  },
 };
