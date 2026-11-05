@@ -2,8 +2,9 @@
 
 The dev seed (`src/scripts/seed.ts`) creates synthetic staff accounts, parent/self-managed User
 accounts, Student profiles, and development setup tokens for manual authentication checks. By default
-it also replaces sessions with fixture data for the session-browse features. It does not run tests,
-send email, or create refresh tokens; logins and account completion create refresh sessions normally.
+it also replaces sessions and announcements with fixture data for the session-browse and announcement
+features. It does not run tests, send email, or create refresh tokens; logins and account completion
+create refresh sessions normally.
 
 ## Run the seed
 
@@ -15,8 +16,8 @@ docker compose exec backend npm run prisma:migrate:deploy
 docker compose exec backend npm run db:seed -- --auth-only
 ```
 
-`--auth-only` leaves sessions and session series untouched. Omit it to also replace session fixtures,
-as the original script did. Apply migrations and generate the Prisma client before seeding. Review
+`--auth-only` leaves sessions, session series, and announcements untouched. Omit it to also replace
+session and announcement fixtures, as the original script did. Apply migrations and generate the Prisma client before seeding. Review
 the existing staff-role migration before applying the migration history to a populated database.
 
 To restore forgotten fixture passwords and repeat the signup/linking cases, run:
@@ -29,7 +30,7 @@ docker compose exec backend npm run db:seed -- --auth-only --reset-auth
 sessions, restores the eight fixture students' initial manager assignments, clears setup tokens for
 those membership IDs, and prints fresh setup tokens. It also removes the completed
 `setup.new@e2s.test` account so that the new-account setup case can be repeated. Account contact
-details and Student profile fields are preserved. Session/session-series fixtures remain unchanged
+details and Student profile fields are preserved. Session, session-series, and announcement fixtures remain unchanged
 when paired with `--auth-only`.
 
 The reset is limited to these reserved auth fixtures. Other accounts and nonfixture students are
@@ -84,6 +85,14 @@ coordination.
 A full seed (without `--auth-only`) deletes all existing sessions and session series, then inserts one weekly series and seven
 sessions relative to the current month in the org timezone: draft and cancelled sessions, several on the
 same day, one near midnight on the last day of the month, and one in the previous month.
+
+## Announcement fixtures
+
+Every run also deletes all existing announcements and inserts five, created by `admin@e2s.test`, one per
+query bucket relative to today in the org timezone: two live now (one single-day, one multi-day), one
+upcoming, one expired, and one soft-deleted while live. `currentAnnouncements` returns the two live ones,
+`liveAndUpcomingAnnouncements` adds the upcoming one, and `pastAnnouncements` returns the expired and
+soft-deleted ones.
 
 ## Sample credentials
 
