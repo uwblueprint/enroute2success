@@ -1,4 +1,9 @@
+import { Role } from '../../generated/client';
 import type { Feedback, PrismaClient } from '../../generated/client';
+import { zonedWallTimeToUtc } from '../utils/datetime';
+
+const FEEDBACK_TIMEZONE = 'America/Toronto';
+const FEEDBACK_LOOKBACK_DAYS = 7;
 
 export type CreateFeedbackInput = {
   receiver: number;
@@ -17,6 +22,48 @@ export class SessionNotFoundError extends Error {
   constructor() {
     super('Session not found');
     this.name = 'SessionNotFoundError';
+  }
+}
+
+export class FeedbackEditWindowError extends Error {
+  constructor() {
+    super(
+      'Feedback can only be created or edited from the session date through the seventh calendar day afterward'
+    );
+    this.name = 'FeedbackEditWindowError';
+  }
+}
+
+export function assertFeedbackEditWindow(
+  role: Role,
+  sessionStart: Date,
+  now: Date = new Date()
+): void {
+  if (role === Role.ADMIN) {
+    return;
+  }
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: FEEDBACK_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(sessionStart);
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  const year = get('year');
+  const month = get('month');
+  const day = get('day');
+
+  const windowStart = zonedWallTimeToUtc(year, month, day, FEEDBACK_TIMEZONE);
+  const windowEnd = zonedWallTimeToUtc(
+    year,
+    month,
+    day + FEEDBACK_LOOKBACK_DAYS + 1,
+    FEEDBACK_TIMEZONE
+  );
+
+  if (now < windowStart || now >= windowEnd) {
+    throw new FeedbackEditWindowError();
   }
 }
 
