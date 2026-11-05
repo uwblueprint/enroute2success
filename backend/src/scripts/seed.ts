@@ -23,7 +23,13 @@
 import 'dotenv/config';
 import { StaffType } from '../../generated/client';
 import type { session_status, session_type } from '../../generated/client';
-import { ORG_TIMEZONE, zonedWallTimeToUtc, currentLocalMonthYear } from '../utils/datetime';
+import {
+  ORG_TIMEZONE,
+  zonedWallTimeToUtc,
+  currentLocalMonthYear,
+  dayStartUtc,
+  dayEndUtc,
+} from '../utils/datetime';
 import { hashPassword } from '../utils/passwords';
 import { prisma } from '../prisma';
 
@@ -308,10 +314,116 @@ async function seedSessions(): Promise<void> {
   );
 }
 
+/** Admin fixture id from `accounts`; used as the announcement `created_by` FK. */
+const ADMIN_FIXTURE_ID = '00000000-0000-4000-8000-000000000001';
+
+/** Format a UTC instant as a `YYYY-MM-DD` calendar date in the ORG timezone. */
+function localDateString(instant: Date): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: ORG_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(instant);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+/** The local calendar date `deltaDays` away from today, as `YYYY-MM-DD`. */
+function localDateOffset(deltaDays: number): string {
+  return localDateString(new Date(Date.now() + deltaDays * 24 * 60 * 60 * 1000));
+}
+
+/**
+ * Seed announcement fixtures covering every query bucket:
+ *   - getCurrentAnnouncements:          start_date <= now <= end_date, not deleted
+ *   - getLiveAndUpcomingAnnouncements:  end_date >= now, not deleted
+ *   - getPastAnnouncements:             end_date < now, not deleted
+ *
+ * Dates use the same semantics as AnnouncementService.createAnnouncement:
+ * start_date = 12:00 AM EST of the day (dayStartUtc), end_date = 11:59:59.999
+ * PM EST of the day (dayEndUtc). `created_by` is the seeded admin account.
+ */
+async function seedAnnouncements(): Promise<void> {
+  console.log(`🌱 Seeding announcements for local timezone ${ORG_TIMEZONE}.`);
+
+  // Idempotent wipe. No table depends on announcements, so a single deleteMany
+  // is safe. The admin FK row is created (and left intact) by seedStaffAccounts.
+  await prisma.announcements.deleteMany({});
+
+  const today = localDateOffset(0);
+
+  const announcements = [
+    // 1) LIVE now — single-day: starts today, ends today.
+    //    Appears in currentAnnouncements AND liveAndUpcomingAnnouncements.
+    {
+      message: 'Welcome back! The clubhouse is open all day today.',
+      start_date: dayStartUtc(today),
+      end_date: dayEndUtc(today),
+      created_by: ADMIN_FIXTURE_ID,
+    },
+
+    // 2) LIVE now — multi-day: started 3 days ago, ends 3 days from now.
+    //    Appears in currentAnnouncements AND liveAndUpcomingAnnouncements.
+    {
+      message: 'Spring registration is open this week — sign up at the front desk.',
+      start_date: dayStartUtc(localDateOffset(-3)),
+      end_date: dayEndUtc(localDateOffset(3)),
+      created_by: ADMIN_FIXTURE_ID,
+    },
+
+    // 3) UPCOMING — starts in 5 days, ends in 7 days.
+    //    Excluded from currentAnnouncements; included in liveAndUpcomingAnnouncements.
+    {
+      message: 'Youth golf tournament next week — registration closes Friday.',
+      start_date: dayStartUtc(localDateOffset(5)),
+      end_date: dayEndUtc(localDateOffset(7)),
+      created_by: ADMIN_FIXTURE_ID,
+    },
+
+    // 4) PAST/expired — started 10 days ago, ended 3 days ago, not deleted.
+    //    Only appears in pastAnnouncements.
+    {
+      message: 'Thanks to everyone who attended last month’s chess open!',
+      start_date: dayStartUtc(localDateOffset(-10)),
+      end_date: dayEndUtc(localDateOffset(-3)),
+      created_by: ADMIN_FIXTURE_ID,
+    },
+
+    // 5) SOFT-DELETED (currently live window) — excluded from every query
+    //    because deleted_at is set. Exercises the deleted_at filter.
+    {
+      message: 'Deleted: duplicate facilities-closure notice.',
+      start_date: dayStartUtc(localDateOffset(-1)),
+      end_date: dayEndUtc(localDateOffset(2)),
+      created_by: ADMIN_FIXTURE_ID,
+      deleted_at: new Date(),
+    },
+  ];
+
+  await prisma.announcements.createMany({ data: announcements });
+
+  const total = await prisma.announcements.count();
+  const active = announcements.filter((a) => a.deleted_at == null);
+  const now = Date.now();
+  const liveNow = active.filter(
+    (a) => a.start_date.getTime() <= now && a.end_date.getTime() >= now
+  ).length;
+  const upcoming = active.filter((a) => a.start_date.getTime() > now).length;
+  const past = active.filter((a) => a.end_date.getTime() < now).length;
+  const deleted = announcements.length - active.length;
+
+  console.log(`✅ Seeded ${total} announcements.`);
+  console.log(
+    `   • Live now: ${liveNow}  • Upcoming: ${upcoming}  • Past: ${past}  • Soft-deleted: ${deleted}.`
+  );
+}
+
 async function main(): Promise<void> {
   requireDevelopmentDatabase();
   await seedStaffAccounts();
   await seedSessions();
+  await seedAnnouncements();
 }
 
 main()
