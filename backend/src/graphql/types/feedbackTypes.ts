@@ -35,4 +35,9 @@ export const feedbackTypeDefs = `#graphql
     "Feedback for the active student in a session, or null if none exists. Students and parents only."
     mySessionFeedback(sessionId: UUID!): Feedback
   }
+
+  extend type Mutation {
+    "Update existing feedback. Staff only."
+    updateFeedback(id: ID!, input: UpdateFeedbackInput!): Feedback!
+  }
 `;
