@@ -6,6 +6,17 @@ export const userTypeDefs = `#graphql
     STUDENT
   }
 
+  type Student {
+    membershipId: Int!
+    firstName: String!
+    lastName: String
+    preferredName: String
+    points: Int!
+    notes: String
+    allergies: [String!]!
+    birthDate: String!
+  }
+
   type User {
     id: UUID!
     firstName: String!
@@ -14,9 +25,17 @@ export const userTypeDefs = `#graphql
     role: Role!
   }
 
+  input LoginInput {
+    email: String
+    membershipId: Int
+    password: String!
+  }
+
   type AuthPayload {
     accessToken: String!
     user: User!
+    managedStudents: [Student!]!
+    activeStudent: Student
   }
 
   extend type Query {
@@ -28,6 +47,8 @@ export const userTypeDefs = `#graphql
       email: String!
       password: String!
     ): AuthPayload!
+
+    loginStudent(input: LoginInput!): AuthPayload!
 
     refreshAccessToken: AuthPayload!
 
