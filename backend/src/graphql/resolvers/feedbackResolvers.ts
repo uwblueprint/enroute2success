@@ -6,12 +6,14 @@ import {
   createFeedback,
   FeedbackAlreadyExistsError,
   FeedbackEditWindowError,
+  FeedbackNotFoundError,
   getMySessionFeedback,
   getStudentSessionFeedback,
   listSessionFeedback,
   listStudentFeedback,
   SessionNotFoundError,
   StudentNotFoundError,
+  updateFeedback,
 } from '../../services/feedbackService';
 import { requireRole } from '../../utils/auth';
 
@@ -27,6 +29,13 @@ type CreateFeedbackArgs = {
   input: {
     studentId: number;
     sessionId: string;
+    text: string;
+  };
+};
+
+type UpdateFeedbackArgs = {
+  id: string;
+  input: {
     text: string;
   };
 };
@@ -146,6 +155,43 @@ export const feedbackResolvers = {
         if (error instanceof FeedbackAlreadyExistsError) {
           throw new GraphQLError(error.message, {
             extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+
+        if (error instanceof FeedbackEditWindowError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'FORBIDDEN' },
+          });
+        }
+
+        throw error;
+      }
+    },
+
+    updateFeedback: async (
+      _parent: unknown,
+      args: UpdateFeedbackArgs,
+      ctx: GraphQLContext
+    ): Promise<Feedback> => {
+      const caller = requireRole(ctx.auth, staffRoles);
+      const text = args.input.text.trim();
+
+      if (text.length === 0) {
+        throw new GraphQLError('Feedback text must not be empty', {
+          extensions: { code: 'BAD_USER_INPUT', field: 'text' },
+        });
+      }
+
+      try {
+        return await updateFeedback(
+          ctx.prisma,
+          { id: args.id, text, updated_by: caller.userId },
+          caller.role
+        );
+      } catch (error) {
+        if (error instanceof FeedbackNotFoundError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'NOT_FOUND', id: args.id },
           });
         }
 

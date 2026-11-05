@@ -4,7 +4,11 @@ import type { GraphQLContext } from './context';
 import { feedbackResolvers } from './resolvers/feedbackResolvers';
 import { sessionResolvers } from './resolvers/sessionResolvers';
 import { userResolvers } from './resolvers/userResolvers';
-import { feedbackCreateMutationTypeDefs, feedbackTypeDefs } from './types/feedbackTypes';
+import {
+  feedbackCreateMutationTypeDefs,
+  feedbackTypeDefs,
+  feedbackUpdateMutationTypeDefs,
+} from './types/feedbackTypes';
 import { sessionTypeDefs } from './types/sessionTypes';
 import { userTypeDefs } from './types/userTypes';
 
@@ -55,6 +59,7 @@ export const schema = makeExecutableSchema<GraphQLContext>({
     sessionTypeDefs,
     feedbackTypeDefs,
     feedbackCreateMutationTypeDefs,
+    feedbackUpdateMutationTypeDefs,
   ],
   resolvers: [baseResolvers, userResolvers, sessionResolvers, feedbackResolvers],
 });
