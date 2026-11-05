@@ -6,6 +6,8 @@ import {
   createStaffAccount,
   EmailInUseError,
   InvalidLoginInputError,
+  getManagedStudents,
+  getStudents,
   getUserWithStaff,
   loginStaff,
   loginStudent,
@@ -36,6 +38,27 @@ export const userResolvers = {
     lastName: (user: UserWithStaff) => user.last_name,
 
     role: (user: UserWithStaff) => user.staff?.role ?? PrismaRole.STUDENT,
+
+    students: async (user: UserWithStaff, _args: unknown, ctx: GraphQLContext) => {
+      const caller = requireRole(ctx.auth, [
+        PrismaRole.ADMIN,
+        PrismaRole.COACH,
+        PrismaRole.VOLUNTEER,
+        PrismaRole.STUDENT,
+      ]);
+
+      if (
+        user.id !== caller.userId &&
+        !(caller.role === PrismaRole.ADMIN) &&
+        !(caller.role === PrismaRole.COACH)
+      ) {
+        throw new GraphQLError('You can only view your own managed students', {
+          extensions: { code: 'FORBIDDEN' },
+        });
+      }
+
+      return getManagedStudents(ctx.prisma, user.id);
+    },
   },
 
   Student: {
@@ -47,6 +70,23 @@ export const userResolvers = {
   },
 
   Query: {
+    allStudents: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
+      requireRole(ctx.auth, [PrismaRole.ADMIN, PrismaRole.COACH]);
+
+      return getStudents(ctx.prisma);
+    },
+
+    myStudents: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
+      const caller = requireRole(ctx.auth, [
+        PrismaRole.ADMIN,
+        PrismaRole.COACH,
+        PrismaRole.VOLUNTEER,
+        PrismaRole.STUDENT,
+      ]);
+
+      return getManagedStudents(ctx.prisma, caller.userId);
+    },
+
     me: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
       const caller = requireRole(ctx.auth, [
         PrismaRole.ADMIN,

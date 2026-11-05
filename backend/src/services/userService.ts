@@ -73,6 +73,19 @@ export async function getUserWithStaff(
   });
 }
 
+export async function getManagedStudents(prisma: PrismaClient, userId: string): Promise<Student[]> {
+  return prisma.student.findMany({
+    where: { manager_id: userId },
+    orderBy: { membership_id: 'asc' },
+  });
+}
+
+export async function getStudents(prisma: PrismaClient): Promise<Student[]> {
+  return prisma.student.findMany({
+    orderBy: { membership_id: 'asc' },
+  });
+}
+
 type LoginPortal = 'staff' | 'student';
 
 function matchesLoginPortal(user: UserWithStaff, portal: LoginPortal): boolean {
