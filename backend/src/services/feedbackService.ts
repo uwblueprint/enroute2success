@@ -1,4 +1,4 @@
-import { Role } from '../../generated/client';
+import { Prisma, Role } from '../../generated/client';
 import type { Feedback, PrismaClient } from '../../generated/client';
 import { zonedWallTimeToUtc } from '../utils/datetime';
 
@@ -22,6 +22,20 @@ export class SessionNotFoundError extends Error {
   constructor() {
     super('Session not found');
     this.name = 'SessionNotFoundError';
+  }
+}
+
+export class StudentNotFoundError extends Error {
+  constructor() {
+    super('Student not found');
+    this.name = 'StudentNotFoundError';
+  }
+}
+
+export class FeedbackAlreadyExistsError extends Error {
+  constructor() {
+    super('Feedback already exists for this student and session; use updateFeedback instead');
+    this.name = 'FeedbackAlreadyExistsError';
   }
 }
 
@@ -120,4 +134,59 @@ export async function getMySessionFeedback(
   await assertSessionExists(prisma, sessionId);
 
   return getStudentSessionFeedback(prisma, activeStudentId, sessionId);
+}
+
+export async function createFeedback(
+  prisma: PrismaClient,
+  input: CreateFeedbackInput,
+  role: Role
+): Promise<Feedback> {
+  const session = await prisma.session.findUnique({
+    where: { id: input.session_id },
+    select: { start_datetime: true },
+  });
+
+  if (!session) {
+    throw new SessionNotFoundError();
+  }
+
+  const student = await prisma.student.findUnique({
+    where: { membership_id: input.receiver },
+    select: { membership_id: true },
+  });
+
+  if (!student) {
+    throw new StudentNotFoundError();
+  }
+
+  assertFeedbackEditWindow(role, session.start_datetime);
+
+  // TODO: Validate student enrollment once the attendance table exists.
+  // TODO: Restrict coaches/volunteers to assigned sessions once session assignment exists.
+
+  try {
+    return await prisma.feedback.create({
+      data: {
+        receiver: input.receiver,
+        session_id: input.session_id,
+        text: input.text,
+        giver: input.giver,
+        updated_by: input.giver,
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      const existingFeedback = await getStudentSessionFeedback(
+        prisma,
+        input.receiver,
+        input.session_id
+      );
+
+      if (existingFeedback) {
+        throw new FeedbackAlreadyExistsError();
+      }
+    }
+
+    throw error;
+  }
 }
