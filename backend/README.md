@@ -1,8 +1,9 @@
 # Backend development seed data
 
-The dev seed (`src/scripts/seed.ts`) creates four synthetic accounts for manually checking the
-staff-authentication ticket, then replaces all sessions with fixture data for the session-browse features.
-It does not run authentication tests or create refresh tokens.
+The dev seed (`src/scripts/seed.ts`) creates synthetic staff accounts, parent/self-managed User
+accounts, Student profiles, and development setup tokens for manual authentication checks. By default
+it also replaces sessions with fixture data for the session-browse features. It does not run tests,
+send email, or create refresh tokens; logins and account completion create refresh sessions normally.
 
 ## Run the seed
 
@@ -11,8 +12,29 @@ and the migrations must be applied. Run these commands from the repository root:
 
 ```sh
 docker compose exec backend npm run prisma:migrate:deploy
-docker compose exec backend npm run db:seed
+docker compose exec backend npm run db:seed -- --auth-only
 ```
+
+`--auth-only` leaves sessions and session series untouched. Omit it to also replace session fixtures,
+as the original script did. Apply migrations and generate the Prisma client before seeding. Review
+the existing staff-role migration before applying the migration history to a populated database.
+
+To restore forgotten fixture passwords and repeat the signup/linking cases, run:
+
+```sh
+docker compose exec backend npm run db:seed -- --auth-only --reset-auth
+```
+
+`--reset-auth` restores all seven seeded account passwords to `DevOnly!12345`, clears their refresh
+sessions, restores the eight fixture students' initial manager assignments, clears setup tokens for
+those membership IDs, and prints fresh setup tokens. It also removes the completed
+`setup.new@e2s.test` account so that the new-account setup case can be repeated. Account contact
+details and Student profile fields are preserved. Session/session-series fixtures remain unchanged
+when paired with `--auth-only`.
+
+The reset is limited to these reserved auth fixtures. Other accounts and nonfixture students are
+preserved. If the new-User setup account has a staff role, announcements, nonfixture students, or
+setup tokens for nonfixture memberships, the reset rolls back rather than deleting that data.
 
 The seed requires `NODE_ENV=development` and a `DATABASE_URL` pointing to the `e2s_db` database on port
 5432 via host `postgres`, `localhost`, or `127.0.0.1`, so it can also be run from `backend/` on the host
@@ -59,40 +81,148 @@ coordination.
 
 ## Session fixtures
 
-Every run deletes all existing sessions and session series, then inserts one weekly series and seven
+A full seed (without `--auth-only`) deletes all existing sessions and session series, then inserts one weekly series and seven
 sessions relative to the current month in the org timezone: draft and cancelled sessions, several on the
 same day, one near midnight on the last day of the month, and one in the previous month.
 
 ## Sample credentials
 
-All four accounts initially use the development-only password `DevOnly!12345`.
+All seven seeded login accounts initially use the development-only password `DevOnly!12345`.
 The seed hashes each account's password separately with the application's Argon2id helper.
 
-| Email                | GraphQL role | Primary checks                                                                   |
-| -------------------- | ------------ | -------------------------------------------------------------------------------- |
-| `admin@e2s.test`     | `ADMIN`      | Successful login; permitted account creation and password reset                  |
-| `coach@e2s.test`     | `COACH`      | Successful login; forbidden admin operations                                     |
-| `volunteer@e2s.test` | `VOLUNTEER`  | Successful login; forbidden admin operations                                     |
-| `nonstaff@e2s.test`  | `STUDENT`    | Staff login returns the same generic error as an unknown email or wrong password |
+| Email                    | GraphQL role | Primary checks                                                                   |
+| ------------------------ | ------------ | -------------------------------------------------------------------------------- |
+| `admin@e2s.test`         | `ADMIN`      | Successful login; permitted account creation and password reset                  |
+| `coach@e2s.test`         | `COACH`      | Successful login; forbidden admin operations                                     |
+| `volunteer@e2s.test`     | `VOLUNTEER`  | Successful login; forbidden admin operations                                     |
+| `nonstaff@e2s.test`      | `STUDENT`    | Staff login returns the same generic error as an unknown email or wrong password |
+| `parent.multi@e2s.test`  | `STUDENT`    | Manages two students; email login returns a profile picker                       |
+| `parent.single@e2s.test` | `STUDENT`    | Manages one student; email login selects that student                            |
+| `student@e2s.test`       | `STUDENT`    | Self-managed student; email and membership login select their profile            |
 
 The profiles use first name `Dev`, the corresponding role label as the last name, and placeholder phone
-number `0000000000`. These are fixtures, not real staff accounts. Their UUIDs are fixed in the seed script.
+number `0000000000`. These are synthetic accounts. Their UUIDs are fixed in the seed script.
+
+The three new User IDs end in `0005` (multi-parent), `0006` (single-parent), and `0007` (self-managed).
+The original nonstaff User ID ends in `0004` and initially has no students.
+
+## Student fixtures
+
+These are the initial assignments. Existing claims are preserved on ordinary reruns; `--reset-auth`
+restores the assignments below.
+
+| Membership ID | Initial manager          | Purpose                                                    |
+| ------------- | ------------------------ | ---------------------------------------------------------- |
+| `900001`      | `parent.multi@e2s.test`  | First family profile; 25 points                            |
+| `900002`      | `parent.multi@e2s.test`  | Second family profile; preferred name `Dev Two`            |
+| `900003`      | `parent.single@e2s.test` | Single-profile login; foreign profile for the multi-parent |
+| `900004`      | `student@e2s.test`       | Self-managed student login                                 |
+| `900005`      | Unclaimed                | Complete setup for a new `setup.new@e2s.test` User         |
+| `900006`      | Unclaimed                | Link another student to an existing account                |
+| `900007`      | Unclaimed                | Complete setup for the existing multi-parent               |
+| `900008`      | Unclaimed                | Actual email requests and expired/used-token checks        |
+
+Each Student has a synthetic identity marker. If a reserved membership ID belongs to another
+student, the script rolls back all auth fixtures rather than replacing or claiming that profile.
+
+## Development setup tokens
+
+The seed prints tokens and URLs for **new User setup**, **existing parent setup**, **expired setup**,
+and **already-used setup**. They exercise completion without SMTP or a frontend page: copy the token
+into `completeAccountSetup` below. Only token hashes are stored. Valid tokens expire after one hour; a rerun
+creates fresh tokens for cases whose students are still unclaimed and whose email matches the case.
+Ordinary reruns never revive consumed tokens or unclaim a student. `--reset-auth` clears old fixture
+tokens and restores initial ownership before generating new tokens.
+
+`setup.new@e2s.test` is deliberately not created as a User by the seed. Complete its setup with
+first name, last name, and phone number to test new account creation. The existing-parent case uses
+`parent.multi@e2s.test` and allows those details to be omitted. Expired and already-used tokens should
+return `BAD_USER_INPUT` on `token` and make no account/password/ownership changes.
+
+These synthetic addresses do not receive real email. To verify actual delivery, use your own email
+with `requestAccountSetup` and membership `900008`, with SMTP configured. A seeded token is a completion
+fixture; it does not verify email delivery by `requestAccountSetup`.
 
 ## Rerunning and testing
 
-The seed creates missing account fixtures in one transaction. Existing matching accounts are left unchanged,
-including passwords, roles, and refresh-token sessions. If a fixture ID or email belongs to a different
-account, the seed refuses to proceed and rolls back its account changes before touching sessions. It does not
-delete unrelated users.
+The seed creates missing account/Student fixtures and setup tokens in one transaction. Existing
+matching accounts are left unchanged, including passwords, contact details, and refresh sessions.
+Existing Student profiles and their ownership are preserved. A conflicting account ID, email, role,
+or Student identity rolls back all auth changes before touching sessions. Unrelated users are not
+deleted. An already-claimed setup case is skipped rather than reset.
 
-If a password-reset test changes a fixture password, rerunning the seed will not restore the original
-password. Use the current password or change it with the admin password-reset mutation.
+If a password-changing test changes a fixture password, an ordinary rerun preserves it. Use
+`--auth-only --reset-auth` to restore the seeded passwords, or use the admin password-reset mutation
+to change one account's password.
 
 After seeding, send operations to `http://localhost:4000/graphql` using the sample credentials.
 Use fresh logins to test refresh rotation, replay, expiry, logout, and session revocation. Duplicate-email
 checks can reuse a seeded email; confirmation-mismatch checks need no extra fixture account.
 
 These fixtures are for local development only. Production admin bootstrapping uses a separate process.
+
+## Manual authentication checklist
+
+Use your GraphQL client to run the mutations and queries listed below. Run initial login/profile
+checks before consuming unclaimed fixtures. Use `http://localhost:4000/graphql` and the password
+above unless you changed it.
+
+For `loginStudent`, provide variables such as:
+
+```json
+{ "input": { "email": "parent.multi@e2s.test", "password": "DevOnly!12345" } }
+```
+
+or:
+
+```json
+{ "input": { "membershipId": 900001, "password": "DevOnly!12345" } }
+```
+
+After login, set `Authorization: Bearer <accessToken>` for protected operations. Replace that token
+after switching/linking. Retain the response's `refresh_token` cookie for refresh/logout. If your API
+client does not retain cookies, copy that cookie from `Set-Cookie` into a `Cookie` request header.
+Login, setup, refresh, and logout do not require an Authorization header; remove an expired Bearer
+token before these requests so context validation does not reject the request first.
+
+| Check                       | Operation and expected result                                                                                                                                                                                                     |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Staff access                | `loginStaff` for admin/coach/volunteer returns the matching role, no managed students, and no active student.                                                                                                                     |
+| Portal restrictions         | Staff credentials through `loginStudent`, or nonstaff/parent/student credentials through `loginStaff`, return `UNAUTHENTICATED`.                                                                                                  |
+| Password/input failures     | Wrong passwords return `UNAUTHENTICATED`. Both or neither login identifier returns `BAD_USER_INPUT`.                                                                                                                              |
+| Zero profiles               | Email login for `nonstaff@e2s.test` succeeds with an empty list and null active student.                                                                                                                                          |
+| Multiple profiles           | Email login for the multi-parent returns `[900001, 900002]` and null active student. Membership login selects the requested sibling.                                                                                              |
+| One/self-managed profile    | Single-parent email login selects `900003`; self-managed email or membership login selects `900004`.                                                                                                                              |
+| Account queries             | `me { students }` and `myStudents` returns only the caller's students, sorted by membership ID. An anonymous request returns `UNAUTHENTICATED`.                                                                                   |
+| Profile switching           | As multi-parent, `selectActiveStudent` with `900002` changes the active membership and preserves the User ID. `900003` returns `FORBIDDEN`.                                                                                       |
+| Linking                     | As multi-parent, `linkManagedStudent` with `900006` succeeds and activates it. Repeating it or linking `900003` returns `CONFLICT`; `999999` returns `NOT_FOUND`. Staff returns `FORBIDDEN`; anonymous returns `UNAUTHENTICATED`. |
+| Existing refresh session    | Switch/link should not set a refresh cookie. `refreshAccessToken` rotates the existing cookie and applies email-login selection rules: multiple students means null active student.                                               |
+| Logout/replay               | `logout` clears/revokes the refresh cookie; refreshing with the old cookie fails. Reusing an already-rotated refresh cookie also fails and revokes the account's active refresh sessions.                                         |
+| Setup confirmation          | `requestAccountSetup` with a missing/claimed membership returns `true` without a setup email. Valid requests require SMTP to check actual delivery.                                                                               |
+| New account completion      | First try the printed new-account token with missing/blank owner details: expect a field-specific error without claiming it. Then supply all three owner details and a nonblank password; the response activates `900005`.        |
+| Existing account completion | Use the printed existing-parent token, omit owner details, and supply a new password. Existing names/phone remain, `900007` becomes active, and old refresh sessions are revoked.                                                 |
+| Setup replay/expiry         | Reuse a successful token, or submit either printed expired/used token: expect `BAD_USER_INPUT` on `token`.                                                                                                                        |
+| Admin permissions           | `createStaffAccount` and `adminSetPassword` succeed only as admin. Coach/volunteer/student callers get `FORBIDDEN`. Creating staff with role `STUDENT` returns `BAD_USER_INPUT`.                                                  |
+
+For example, new-account completion variables are:
+
+```json
+{
+  "token": "COPY_NEW_USER_TOKEN_FROM_SEED_OUTPUT",
+  "newPassword": "DevOnly!12345",
+  "firstName": "Dev",
+  "lastName": "SetupParent",
+  "phoneNumber": "0000000000"
+}
+```
+
+Run password-changing checks last. `adminSetPassword` can target the nonstaff fixture User
+`00000000-0000-4000-8000-000000000004`. Test `createStaffAccount` with a separate synthetic email, such as
+`created.staff@e2s.test`; repeating that email returns `BAD_USER_INPUT`. Mutations alter fixture state,
+so after linking/setup, initial student counts and active-profile expectations change. Rerunning the
+seed normally preserves those changes. Add `--reset-auth` to restore the fixture passwords and
+initial ownership and make the seeded setup/linking cases fresh again. Accounts created separately
+through `createStaffAccount` or setup with your own email are not removed by this reset.
 
 ## Student/parent account setup
 

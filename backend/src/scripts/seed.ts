@@ -1,14 +1,18 @@
 /**
- * Dev-only seed for staff accounts and sessions.
+ * Dev-only seed for staff, parent/student authentication, and sessions.
  *
  * ⚠️  NOT FOR PRODUCTION. It requires NODE_ENV=development and a DATABASE_URL
  * pointing at the local e2s_db database.
  *
- * Run with:  npm run db:seed   (see package.json and README.md)
+ * Run with: npm run db:seed, or npm run db:seed -- --auth-only to keep sessions.
+ * Add --reset-auth to restore fixture passwords and initial student ownership.
  *
- * Staff accounts: creates the four fixture accounts if missing and leaves
- * existing matching accounts unchanged (including passwords). Rolls back if a
- * fixture ID or email belongs to a different account.
+ * Auth fixtures: creates missing accounts and Student profiles. Existing
+ * passwords, contact details, and student ownership are preserved. Conflicting
+ * fixture identities or roles roll back all auth changes. Fresh development
+ * setup tokens are printed only after their transaction commits. --reset-auth
+ * clears fixture refresh/setup tokens and removes the completed new-User setup
+ * account so that setup case can be repeated.
  *
  * Sessions: wipes existing sessions/series and inserts fixture data to
  * exercise the month-browse + session(id) features without an admin UI.
@@ -25,9 +29,20 @@ import { Role } from '../../generated/client';
 import type { session_status, session_type } from '../../generated/client';
 import { ORG_TIMEZONE, zonedWallTimeToUtc, currentLocalMonthYear } from '../utils/datetime';
 import { hashPassword } from '../utils/passwords';
+import {
+  generateAccountSetupToken,
+  getAccountSetupTokenExpiry,
+  getAccountSetupUrl,
+  hashAccountSetupToken,
+} from '../utils/accountSetupTokens';
 import { prisma } from '../prisma';
 
 const DEV_PASSWORD = 'DevOnly!12345';
+const MULTI_PARENT_ID = '00000000-0000-4000-8000-000000000005';
+const SINGLE_PARENT_ID = '00000000-0000-4000-8000-000000000006';
+const SELF_MANAGED_ID = '00000000-0000-4000-8000-000000000007';
+const STUDENT_FIXTURE_NOTE = 'Synthetic development auth fixture; not a real participant.';
+const STUDENT_BIRTH_DATE = new Date('2015-06-07T00:00:00.000Z');
 
 const accounts = [
   {
@@ -53,6 +68,66 @@ const accounts = [
     email: 'nonstaff@e2s.test',
     lastName: 'Nonstaff',
     role: null,
+  },
+  {
+    id: MULTI_PARENT_ID,
+    email: 'parent.multi@e2s.test',
+    lastName: 'MultiParent',
+    role: null,
+  },
+  {
+    id: SINGLE_PARENT_ID,
+    email: 'parent.single@e2s.test',
+    lastName: 'SingleParent',
+    role: null,
+  },
+  {
+    id: SELF_MANAGED_ID,
+    email: 'student@e2s.test',
+    lastName: 'SelfManaged',
+    role: null,
+  },
+];
+
+const students = [
+  { membershipId: 900001, firstName: 'Dev Sibling One', managerId: MULTI_PARENT_ID },
+  { membershipId: 900002, firstName: 'Dev Sibling Two', managerId: MULTI_PARENT_ID },
+  { membershipId: 900003, firstName: 'Dev Only Child', managerId: SINGLE_PARENT_ID },
+  { membershipId: 900004, firstName: 'Dev Self Managed', managerId: SELF_MANAGED_ID },
+  { membershipId: 900005, firstName: 'Dev New Setup', managerId: null },
+  { membershipId: 900006, firstName: 'Dev Link Student', managerId: null },
+  { membershipId: 900007, firstName: 'Dev Existing Setup', managerId: null },
+  { membershipId: 900008, firstName: 'Dev Email Request', managerId: null },
+];
+
+const setupCases = [
+  {
+    label: 'New User setup',
+    email: 'setup.new@e2s.test',
+    membershipId: 900005,
+    userId: null,
+    state: 'valid',
+  },
+  {
+    label: 'Existing parent setup',
+    email: 'parent.multi@e2s.test',
+    membershipId: 900007,
+    userId: MULTI_PARENT_ID,
+    state: 'valid',
+  },
+  {
+    label: 'Expired setup token',
+    email: 'setup.expired@e2s.test',
+    membershipId: 900008,
+    userId: null,
+    state: 'expired',
+  },
+  {
+    label: 'Already-used setup token',
+    email: 'setup.used@e2s.test',
+    membershipId: 900008,
+    userId: null,
+    state: 'used',
   },
 ];
 
@@ -84,7 +159,7 @@ function requireDevelopmentDatabase(): void {
   }
 }
 
-async function seedStaffAccounts(): Promise<void> {
+async function seedAuthFixtures(resetAuth: boolean): Promise<void> {
   const preparedAccounts = await Promise.all(
     accounts.map(async (account) => ({
       ...account,
@@ -92,14 +167,26 @@ async function seedStaffAccounts(): Promise<void> {
     }))
   );
 
-  const created = await prisma.$transaction(
+  const seeded = await prisma.$transaction(
     async (tx) => {
-      let count = 0;
+      let accountCount = 0;
+      let studentCount = 0;
+      let resetAccountCount = 0;
+      let resetStudentCount = 0;
+      let removedSetupUsers = 0;
+      const setupLinks: {
+        label: string;
+        email: string;
+        membershipId: number;
+        token: string;
+        url: string;
+      }[] = [];
+      const skippedSetups: string[] = [];
 
       for (const account of preparedAccounts) {
         const existing = await tx.user.findFirst({
           where: { OR: [{ id: account.id }, { email: account.email }] },
-          select: { id: true, email: true },
+          select: { id: true, email: true, staff: { select: { role: true } } },
         });
 
         if (existing) {
@@ -107,6 +194,21 @@ async function seedStaffAccounts(): Promise<void> {
             throw new SeedError(
               'A seed ID or email belongs to another account; account seeding was rolled back.'
             );
+          }
+
+          if ((existing.staff?.role ?? null) !== account.role) {
+            throw new SeedError(
+              'A fixture account has a different role; auth seeding was rolled back without changing roles.'
+            );
+          }
+
+          if (resetAuth) {
+            await tx.user.update({
+              where: { id: account.id },
+              data: { password_hash: account.passwordHash },
+            });
+            await tx.refresh_tokens.deleteMany({ where: { user_id: account.id } });
+            resetAccountCount += 1;
           }
 
           continue;
@@ -123,15 +225,190 @@ async function seedStaffAccounts(): Promise<void> {
             ...(account.role === null ? {} : { staff: { create: { role: account.role } } }),
           },
         });
-        count += 1;
+        accountCount += 1;
       }
 
-      return count;
+      for (const student of students) {
+        const existing = await tx.student.findUnique({
+          where: { membership_id: student.membershipId },
+        });
+
+        if (existing) {
+          if (
+            existing.first_name !== student.firstName ||
+            existing.last_name !== 'Fixture' ||
+            existing.birth_date.getTime() !== STUDENT_BIRTH_DATE.getTime() ||
+            existing.notes !== STUDENT_FIXTURE_NOTE
+          ) {
+            throw new SeedError(
+              'A fixture membership ID belongs to another student; auth seeding was rolled back.'
+            );
+          }
+
+          if (resetAuth) {
+            await tx.student.update({
+              where: { membership_id: student.membershipId },
+              data: { manager_id: student.managerId },
+            });
+            resetStudentCount += 1;
+          }
+
+          continue;
+        }
+
+        await tx.student.create({
+          data: {
+            membership_id: student.membershipId,
+            manager_id: student.managerId,
+            first_name: student.firstName,
+            last_name: 'Fixture',
+            preferred_name: student.membershipId === 900002 ? 'Dev Two' : null,
+            birth_date: STUDENT_BIRTH_DATE,
+            points: student.membershipId === 900001 ? 25 : 0,
+            allergies: [],
+            notes: STUDENT_FIXTURE_NOTE,
+          },
+        });
+        studentCount += 1;
+      }
+
+      if (resetAuth) {
+        const membershipIds = students.map((student) => student.membershipId);
+        await tx.accountSetupToken.deleteMany({
+          where: { membership_id: { in: membershipIds } },
+        });
+
+        for (const setup of setupCases.filter(
+          (candidate) => candidate.state === 'valid' && candidate.userId === null
+        )) {
+          const owner = await tx.user.findUnique({
+            where: { email: setup.email },
+            include: {
+              staff: true,
+              students: { select: { membership_id: true } },
+              announcements: { select: { id: true }, take: 1 },
+              accountSetupTokens: { select: { membership_id: true } },
+            },
+          });
+
+          if (!owner) {
+            continue;
+          }
+
+          if (
+            owner.staff !== null ||
+            owner.students.some((student) => !membershipIds.includes(student.membership_id)) ||
+            owner.announcements.length > 0 ||
+            owner.accountSetupTokens.some((token) => !membershipIds.includes(token.membership_id))
+          ) {
+            throw new SeedError(
+              'The new-User setup fixture has unrelated data or a staff role; auth reset was rolled back.'
+            );
+          }
+
+          await tx.refresh_tokens.deleteMany({ where: { user_id: owner.id } });
+          await tx.user.delete({ where: { id: owner.id } });
+          removedSetupUsers += 1;
+        }
+      }
+
+      for (const setup of setupCases) {
+        const student = await tx.student.findUnique({
+          where: { membership_id: setup.membershipId },
+        });
+
+        if (!student || student.manager_id !== null) {
+          skippedSetups.push(
+            `${setup.label}: membership ${setup.membershipId} is already claimed.`
+          );
+          continue;
+        }
+
+        const owner = await tx.user.findUnique({ where: { email: setup.email } });
+
+        if ((owner?.id ?? null) !== setup.userId) {
+          skippedSetups.push(`${setup.label}: the setup email no longer matches the fixture case.`);
+          continue;
+        }
+
+        const rawToken = generateAccountSetupToken();
+        const url = getAccountSetupUrl(rawToken);
+
+        await tx.accountSetupToken.create({
+          data: {
+            email: setup.email,
+            membership_id: setup.membershipId,
+            user_id: setup.userId,
+            token_hash: hashAccountSetupToken(rawToken),
+            expires_at:
+              setup.state === 'expired'
+                ? new Date(Date.now() - 1000)
+                : getAccountSetupTokenExpiry(),
+            used_at: setup.state === 'used' ? new Date() : null,
+          },
+        });
+        setupLinks.push({
+          label: setup.label,
+          email: setup.email,
+          membershipId: setup.membershipId,
+          token: rawToken,
+          url,
+        });
+      }
+
+      return {
+        accountCount,
+        studentCount,
+        resetAccountCount,
+        resetStudentCount,
+        removedSetupUsers,
+        setupLinks,
+        skippedSetups,
+      };
     },
     { isolationLevel: 'ReadCommitted' }
   );
 
-  console.log(`✅ Created ${created} dev auth accounts; existing accounts were unchanged.`);
+  console.log(
+    `✅ Created ${seeded.accountCount} dev auth accounts and ${seeded.studentCount} students.`
+  );
+
+  if (resetAuth) {
+    console.log(
+      `Reset ${seeded.resetAccountCount} fixture passwords to ${DEV_PASSWORD} and restored ` +
+        `${seeded.resetStudentCount} student assignments. Cleared fixture refresh/setup tokens ` +
+        `and removed ${seeded.removedSetupUsers} completed new-User setup accounts.`
+    );
+  } else {
+    console.log('Existing passwords, contact details, and claims were unchanged.');
+  }
+  console.table(
+    accounts.map((account) => ({
+      email: account.email,
+      role: account.role ?? Role.STUDENT,
+      initialPassword: DEV_PASSWORD,
+    }))
+  );
+  console.table(
+    students.map((student) => ({
+      membershipId: student.membershipId,
+      student: student.firstName,
+      initialManager:
+        accounts.find((account) => account.id === student.managerId)?.email ?? 'Unclaimed',
+    }))
+  );
+
+  for (const setup of seeded.setupLinks) {
+    console.log(`\n${setup.label} (${setup.email}, membership ${setup.membershipId})`);
+    console.log(`  Token: ${setup.token}`);
+    console.log(`  URL: ${setup.url}`);
+  }
+
+  for (const skipped of seeded.skippedSetups) {
+    console.log(`Skipped ${skipped}`);
+  }
+
+  console.log('\nValid development setup tokens expire after one hour. No emails were sent.');
 }
 
 /** Build a UTC Date from local wall-clock parts in the ORG timezone. */
@@ -310,8 +587,19 @@ async function seedSessions(): Promise<void> {
 
 async function main(): Promise<void> {
   requireDevelopmentDatabase();
-  await seedStaffAccounts();
-  await seedSessions();
+  const args = process.argv.slice(2);
+
+  if (args.some((arg) => !['--auth-only', '--reset-auth'].includes(arg))) {
+    throw new SeedError('Supported seed options: --auth-only, --reset-auth.');
+  }
+
+  await seedAuthFixtures(args.includes('--reset-auth'));
+
+  if (args.includes('--auth-only')) {
+    console.log('Auth-only seed complete; sessions and session series were unchanged.');
+  } else {
+    await seedSessions();
+  }
 }
 
 main()
