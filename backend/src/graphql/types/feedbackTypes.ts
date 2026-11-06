@@ -27,21 +27,25 @@ export const feedbackTypeDefs = `#graphql
   }
 `;
 
-export const feedbackMutationTypeDefs = `#graphql
+export const feedbackCreateMutationTypeDefs = `#graphql
   input CreateFeedbackInput {
     studentId: Int!
     sessionId: ID!
     text: String!
   }
 
+  extend type Mutation {
+    "Create feedback for a student in a session. Staff only."
+    createFeedback(input: CreateFeedbackInput!): Feedback!
+  }
+`;
+
+export const feedbackUpdateMutationTypeDefs = `#graphql
   input UpdateFeedbackInput {
     text: String!
   }
 
   extend type Mutation {
-    "Create feedback for a student in a session. Staff only."
-    createFeedback(input: CreateFeedbackInput!): Feedback!
-
     "Update existing feedback. Staff only."
     updateFeedback(id: ID!, input: UpdateFeedbackInput!): Feedback!
   }
