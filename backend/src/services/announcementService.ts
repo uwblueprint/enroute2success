@@ -6,7 +6,7 @@ import { currentLocalDate, localDayEndUtc, localDayStartUtc } from '../utils/dat
 export type CreateAnnouncementInput = {
   message: string;
   start_date: string;
-  end_date?: string | null;
+  end_date: string;
 };
 
 /** Dates are calendar days written 'YYYY-MM-DD' in the org's timezone. */
@@ -84,9 +84,7 @@ export async function createAnnouncement(
 ): Promise<Announcements> {
   const today = currentLocalDate();
   const startDay = input.start_date;
-  // The table requires an end date, so an announcement with none ends on the
-  // day it starts.
-  const endDay = input.end_date ?? startDay;
+  const endDay = input.end_date;
 
   // Calendar-day strings ('YYYY-MM-DD') compare correctly as plain strings.
   if (startDay < today) {
