@@ -6,27 +6,65 @@ export const userTypeDefs = `#graphql
     STUDENT
   }
 
+  type Student {
+    membershipId: Int!
+    firstName: String!
+    lastName: String
+    preferredName: String
+    points: Int!
+    notes: String
+    allergies: [String!]!
+    birthDate: String!
+  }
+
   type User {
     id: UUID!
     firstName: String!
     lastName: String!
     email: String!
     role: Role!
+    students: [Student!]!
+  }
+
+  input LoginInput {
+    email: String
+    membershipId: Int
+    password: String!
   }
 
   type AuthPayload {
     accessToken: String!
     user: User!
+    managedStudents: [Student!]!
+    activeStudent: Student
   }
 
   extend type Query {
     me: User
+    allStudents: [Student!]!
+    myStudents: [Student!]!
   }
 
   extend type Mutation {
     loginStaff(
       email: String!
       password: String!
+    ): AuthPayload!
+
+    loginStudent(input: LoginInput!): AuthPayload!
+
+    selectActiveStudent(membershipId: Int!): AuthPayload!
+
+    linkManagedStudent(membershipId: Int!): AuthPayload!
+
+    requestAccountSetup(email: String!, membershipId: Int!): Boolean!
+
+    completeAccountSetup(
+      token: String!
+      newPassword: String!
+      firstName: String
+      lastName: String
+      phoneNumber: String
     ): AuthPayload!
 
     refreshAccessToken: AuthPayload!

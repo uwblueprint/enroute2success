@@ -1,16 +1,34 @@
 import { GraphQLError } from 'graphql';
 import { Role as PrismaRole } from '../../../generated/client';
+import type { Student } from '../../../generated/client';
 import type { GraphQLContext } from '../context';
 import {
+  completeAccountSetup,
   createStaffAccount,
   EmailInUseError,
+  InvalidAccountSetupInputError,
+  InvalidAccountSetupTokenError,
+  InvalidLoginInputError,
+  getManagedStudents,
+  getStudents,
   getUserWithStaff,
+  linkManagedStudent,
   loginStaff,
+  loginStudent,
+  requestAccountSetup,
   revokeRefreshToken,
   rotateRefreshToken,
+  selectActiveStudent,
   setUserPassword,
+  StudentAlreadyClaimedError,
+  StudentNotFoundError,
 } from '../../services/userService';
-import type { CreateStaffAccountInput, UserWithStaff } from '../../services/userService';
+import type {
+  CompleteAccountSetupInput,
+  CreateStaffAccountInput,
+  LoginInput,
+  UserWithStaff,
+} from '../../services/userService';
 import { requireRole } from '../../utils/auth';
 import { clearRefreshTokenCookie, setRefreshTokenCookie } from '../../utils/refreshTokenCookies';
 
@@ -28,9 +46,55 @@ export const userResolvers = {
     lastName: (user: UserWithStaff) => user.last_name,
 
     role: (user: UserWithStaff) => user.staff?.role ?? PrismaRole.STUDENT,
+
+    students: async (user: UserWithStaff, _args: unknown, ctx: GraphQLContext) => {
+      const caller = requireRole(ctx.auth, [
+        PrismaRole.ADMIN,
+        PrismaRole.COACH,
+        PrismaRole.VOLUNTEER,
+        PrismaRole.STUDENT,
+      ]);
+
+      if (
+        user.id !== caller.userId &&
+        !(caller.role === PrismaRole.ADMIN) &&
+        !(caller.role === PrismaRole.COACH)
+      ) {
+        throw new GraphQLError('You can only view your own managed students', {
+          extensions: { code: 'FORBIDDEN' },
+        });
+      }
+
+      return getManagedStudents(ctx.prisma, user.id);
+    },
+  },
+
+  Student: {
+    membershipId: (student: Student) => student.membership_id,
+    firstName: (student: Student) => student.first_name,
+    lastName: (student: Student) => student.last_name,
+    preferredName: (student: Student) => student.preferred_name,
+    birthDate: (student: Student) => student.birth_date.toISOString().slice(0, 10),
   },
 
   Query: {
+    allStudents: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
+      requireRole(ctx.auth, [PrismaRole.ADMIN, PrismaRole.COACH]);
+
+      return getStudents(ctx.prisma);
+    },
+
+    myStudents: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
+      const caller = requireRole(ctx.auth, [
+        PrismaRole.ADMIN,
+        PrismaRole.COACH,
+        PrismaRole.VOLUNTEER,
+        PrismaRole.STUDENT,
+      ]);
+
+      return getManagedStudents(ctx.prisma, caller.userId);
+    },
+
     me: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
       const caller = requireRole(ctx.auth, [
         PrismaRole.ADMIN,
@@ -66,7 +130,142 @@ export const userResolvers = {
 
       setRefreshTokenCookie(ctx.res, session.refreshToken, session.refreshTokenExpiresAt);
 
-      return { accessToken: session.accessToken, user: session.user };
+      return {
+        accessToken: session.accessToken,
+        user: session.user,
+        managedStudents: session.managedStudents,
+        activeStudent: session.activeStudent,
+      };
+    },
+
+    loginStudent: async (_parent: unknown, args: { input: LoginInput }, ctx: GraphQLContext) => {
+      try {
+        const session = await loginStudent(ctx.prisma, args.input);
+
+        if (!session) {
+          throw new GraphQLError('email, membership ID, or password is incorrect', {
+            extensions: { code: 'UNAUTHENTICATED' },
+          });
+        }
+
+        setRefreshTokenCookie(ctx.res, session.refreshToken, session.refreshTokenExpiresAt);
+
+        return {
+          accessToken: session.accessToken,
+          user: session.user,
+          managedStudents: session.managedStudents,
+          activeStudent: session.activeStudent,
+        };
+      } catch (error) {
+        if (error instanceof InvalidLoginInputError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'BAD_USER_INPUT', field: 'input' },
+          });
+        }
+
+        throw error;
+      }
+    },
+
+    selectActiveStudent: async (
+      _parent: unknown,
+      args: { membershipId: number },
+      ctx: GraphQLContext
+    ) => {
+      const caller = requireRole(ctx.auth, [PrismaRole.STUDENT]);
+      const payload = await selectActiveStudent(ctx.prisma, caller.userId, args.membershipId);
+
+      if (!payload) {
+        throw new GraphQLError('You do not manage this student', {
+          extensions: { code: 'FORBIDDEN' },
+        });
+      }
+
+      return payload;
+    },
+
+    linkManagedStudent: async (
+      _parent: unknown,
+      args: { membershipId: number },
+      ctx: GraphQLContext
+    ) => {
+      const caller = requireRole(ctx.auth, [PrismaRole.STUDENT]);
+
+      try {
+        const payload = await linkManagedStudent(ctx.prisma, caller.userId, args.membershipId);
+
+        if (!payload) {
+          throw new GraphQLError('Unable to link a student for this account', {
+            extensions: { code: 'FORBIDDEN' },
+          });
+        }
+
+        return payload;
+      } catch (error) {
+        if (error instanceof StudentNotFoundError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'NOT_FOUND', field: 'membershipId' },
+          });
+        }
+
+        if (error instanceof StudentAlreadyClaimedError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'CONFLICT', field: 'membershipId' },
+          });
+        }
+
+        throw error;
+      }
+    },
+
+    requestAccountSetup: async (
+      _parent: unknown,
+      args: { email: string; membershipId: number },
+      ctx: GraphQLContext
+    ) => {
+      try {
+        return await requestAccountSetup(ctx.prisma, args.email, args.membershipId);
+      } catch (error) {
+        if (error instanceof InvalidAccountSetupInputError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'BAD_USER_INPUT', field: error.field },
+          });
+        }
+
+        throw error;
+      }
+    },
+
+    completeAccountSetup: async (
+      _parent: unknown,
+      args: CompleteAccountSetupInput,
+      ctx: GraphQLContext
+    ) => {
+      try {
+        const session = await completeAccountSetup(ctx.prisma, args);
+        setRefreshTokenCookie(ctx.res, session.refreshToken, session.refreshTokenExpiresAt);
+
+        return {
+          accessToken: session.accessToken,
+          user: session.user,
+          managedStudents: session.managedStudents,
+          activeStudent: session.activeStudent,
+        };
+      } catch (error) {
+        if (error instanceof InvalidAccountSetupInputError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'BAD_USER_INPUT', field: error.field },
+          });
+        }
+
+        if (error instanceof InvalidAccountSetupTokenError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'BAD_USER_INPUT', field: 'token' },
+          });
+        }
+
+        throw error;
+      }
     },
 
     refreshAccessToken: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
@@ -85,7 +284,12 @@ export const userResolvers = {
 
         setRefreshTokenCookie(ctx.res, session.refreshToken, session.refreshTokenExpiresAt);
 
-        return { accessToken: session.accessToken, user: session.user };
+        return {
+          accessToken: session.accessToken,
+          user: session.user,
+          managedStudents: session.managedStudents,
+          activeStudent: session.activeStudent,
+        };
       } catch {
         clearRefreshTokenCookie(ctx.res);
         throw new GraphQLError('Invalid or expired refresh token', {

@@ -87,9 +87,10 @@ model User {
   // A user may or may not have a staff record.
   staff StaffUsers?
 
-  refreshTokens refresh_tokens[]
-  announcements Announcements[]
-  students      Student[]
+  refreshTokens      refresh_tokens[]
+  announcements      Announcements[]
+  students           Student[]
+  accountSetupTokens AccountSetupToken[]
 
   @@map("users")
 }
@@ -107,10 +108,29 @@ model Student {
   created_at     DateTime @default(now()) @db.Timestamp(6)
   updated_at     DateTime @default(now()) @updatedAt @db.Timestamp(6)
 
-  manager User? @relation(fields: [manager_id], references: [id], onDelete: SetNull)
+  manager            User?               @relation(fields: [manager_id], references: [id], onDelete: SetNull)
+  accountSetupTokens AccountSetupToken[]
 
   @@index([manager_id])
   @@map("students")
+}
+
+model AccountSetupToken {
+  id            String    @id @default(uuid()) @db.Uuid
+  email         String
+  membership_id Int
+  user_id       String?   @db.Uuid
+  token_hash    String    @unique @db.VarChar
+  expires_at    DateTime  @db.Timestamp(3)
+  used_at       DateTime? @db.Timestamp(3)
+  created_at    DateTime  @default(now()) @db.Timestamp(3)
+
+  student Student @relation(fields: [membership_id], references: [membership_id], onDelete: Cascade)
+  user    User?   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([membership_id])
+  @@index([user_id])
+  @@map("account_setup_tokens")
 }
 
 model StaffUsers {

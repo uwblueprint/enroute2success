@@ -1,13 +1,20 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, Role } from '../../generated/client';
-import type { PrismaClient, StaffUsers, User } from '../../generated/client';
+import type { PrismaClient, StaffUsers, Student, User } from '../../generated/client';
 import { generateAccessToken } from '../utils/accessTokens';
+import {
+  generateAccountSetupToken,
+  getAccountSetupTokenExpiry,
+  getAccountSetupUrl,
+  hashAccountSetupToken,
+} from '../utils/accountSetupTokens';
 import { hashPassword, verifyPassword } from '../utils/passwords';
 import {
   generateRefreshToken,
   getRefreshTokenExpiry,
   hashRefreshToken,
 } from '../utils/refreshTokens';
+import { sendSetPasswordEmail } from './emailService';
 
 // A database user with their staff relation loaded.
 // The staff relation can be null.
@@ -15,11 +22,22 @@ export type UserWithStaff = User & {
   staff: StaffUsers | null;
 };
 
-export type StaffSession = {
+export type AuthPayload = {
   accessToken: string;
   user: UserWithStaff;
+  managedStudents: Student[];
+  activeStudent: Student | null;
+};
+
+export type AuthSession = AuthPayload & {
   refreshToken: string;
   refreshTokenExpiresAt: Date;
+};
+
+export type LoginInput = {
+  email?: string | null;
+  membershipId?: number | null;
+  password: string;
 };
 
 export type CreateStaffAccountInput = {
@@ -31,10 +49,65 @@ export type CreateStaffAccountInput = {
   role: Role;
 };
 
+export type CompleteAccountSetupInput = {
+  token: string;
+  newPassword: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  phoneNumber?: string | null;
+};
+
+type AccountSetupField = 'email' | 'newPassword' | 'firstName' | 'lastName' | 'phoneNumber';
+
+export class InvalidAccountSetupInputError extends Error {
+  constructor(
+    public readonly field: AccountSetupField,
+    message: string
+  ) {
+    super(message);
+    this.name = 'InvalidAccountSetupInputError';
+  }
+}
+
+export class InvalidAccountSetupTokenError extends Error {
+  constructor() {
+    super('Account setup link is invalid or expired');
+    this.name = 'InvalidAccountSetupTokenError';
+  }
+}
+
 export class EmailInUseError extends Error {
   constructor() {
     super('Email is already in use');
     this.name = 'EmailInUseError';
+  }
+}
+
+export class InvalidStaffRoleError extends Error {
+  constructor() {
+    super('Staff accounts require an ADMIN, COACH, or VOLUNTEER role');
+    this.name = 'InvalidStaffRoleError';
+  }
+}
+
+export class InvalidLoginInputError extends Error {
+  constructor() {
+    super('Provide exactly one of email or membershipId');
+    this.name = 'InvalidLoginInputError';
+  }
+}
+
+export class StudentNotFoundError extends Error {
+  constructor() {
+    super('Student not found');
+    this.name = 'StudentNotFoundError';
+  }
+}
+
+export class StudentAlreadyClaimedError extends Error {
+  constructor() {
+    super('Student is already linked to an account');
+    this.name = 'StudentAlreadyClaimedError';
   }
 }
 
@@ -48,16 +121,87 @@ export async function getUserWithStaff(
   });
 }
 
-export async function loginStaff(
-  prisma: PrismaClient,
-  email: string,
-  password: string
-): Promise<StaffSession | null> {
-  const user = await prisma.user.findUnique({
-    where: { email },
-    include: { staff: true },
+export async function getManagedStudents(prisma: PrismaClient, userId: string): Promise<Student[]> {
+  return prisma.student.findMany({
+    where: { manager_id: userId },
+    orderBy: { membership_id: 'asc' },
   });
+}
 
+export async function getStudents(prisma: PrismaClient): Promise<Student[]> {
+  return prisma.student.findMany({
+    orderBy: { membership_id: 'asc' },
+  });
+}
+
+type LoginPortal = 'staff' | 'student';
+
+function matchesLoginPortal(user: UserWithStaff, portal: LoginPortal): boolean {
+  return portal === 'staff'
+    ? user.staff !== null && user.staff.role !== Role.STUDENT
+    : user.staff === null;
+}
+
+function createAuthPayload(
+  user: UserWithStaff,
+  students: Student[],
+  membershipId?: number
+): AuthPayload | null {
+  if (user.staff?.role === Role.STUDENT) {
+    return null;
+  }
+
+  const managedStudents = user.staff ? [] : students;
+  let activeStudent: Student | null = null;
+
+  if (membershipId !== undefined) {
+    activeStudent =
+      managedStudents.find((student) => student.membership_id === membershipId) ?? null;
+
+    if (activeStudent === null) {
+      return null;
+    }
+  } else if (managedStudents.length === 1) {
+    activeStudent = managedStudents[0];
+  }
+
+  return {
+    accessToken: generateAccessToken({
+      userId: user.id,
+      role: user.staff?.role ?? Role.STUDENT,
+      activeStudentId: activeStudent?.membership_id ?? null,
+    }),
+    user,
+    managedStudents,
+    activeStudent,
+  };
+}
+
+function createSession(
+  user: UserWithStaff,
+  students: Student[],
+  membershipId?: number
+): AuthSession | null {
+  const payload = createAuthPayload(user, students, membershipId);
+
+  if (!payload) {
+    return null;
+  }
+
+  return {
+    ...payload,
+    refreshToken: generateRefreshToken(),
+    refreshTokenExpiresAt: getRefreshTokenExpiry(),
+  };
+}
+
+async function loginAccount(
+  prisma: PrismaClient,
+  user: UserWithStaff | null,
+  password: string,
+  portal: LoginPortal,
+  membershipId?: number
+): Promise<AuthSession | null> {
   let passwordMatches = false;
 
   if (user) {
@@ -66,55 +210,375 @@ export async function loginStaff(
     await hashPassword(password);
   }
 
-  if (!user || !user.staff || !passwordMatches) {
+  if (!user || !passwordMatches || !matchesLoginPortal(user, portal)) {
     return null;
   }
 
-  const accessToken = generateAccessToken({
-    userId: user.id,
-    role: user.staff.role,
-    activeStudentId: null,
-  });
-  const refreshToken = generateRefreshToken();
-  const refreshTokenExpiresAt = getRefreshTokenExpiry();
-
-  const issued = await prisma.$transaction(
+  return prisma.$transaction(
     async (tx) => {
-      const [currentUser] = await tx.$queryRaw<Array<{ password_hash: string }>>`
-        SELECT "password_hash" FROM "users"
+      await tx.$queryRaw`
+        SELECT "id" FROM "users"
         WHERE "id" = ${user.id}::uuid
         FOR UPDATE
       `;
 
-      if (currentUser?.password_hash !== user.password_hash) {
-        return false;
+      const currentUser = await tx.user.findUnique({
+        where: { id: user.id },
+        include: { staff: true, students: { orderBy: { membership_id: 'asc' } } },
+      });
+
+      if (
+        !currentUser ||
+        currentUser.password_hash !== user.password_hash ||
+        !matchesLoginPortal(currentUser, portal)
+      ) {
+        return null;
+      }
+
+      const session = createSession(currentUser, currentUser.students, membershipId);
+
+      if (!session) {
+        return null;
       }
 
       await tx.refresh_tokens.create({
         data: {
           id: randomUUID(),
           user_id: user.id,
-          token_hash: hashRefreshToken(refreshToken),
-          expires_at: refreshTokenExpiresAt,
+          token_hash: hashRefreshToken(session.refreshToken),
+          expires_at: session.refreshTokenExpiresAt,
         },
       });
 
-      return true;
+      return session;
     },
     { isolationLevel: 'ReadCommitted' }
   );
+}
 
-  if (!issued) {
+export async function loginStaff(
+  prisma: PrismaClient,
+  email: string,
+  password: string
+): Promise<AuthSession | null> {
+  const user = await prisma.user.findUnique({
+    where: { email },
+    include: { staff: true },
+  });
+
+  return loginAccount(prisma, user, password, 'staff');
+}
+
+export async function loginStudent(
+  prisma: PrismaClient,
+  input: LoginInput
+): Promise<AuthSession | null> {
+  const { email, membershipId, password } = input;
+
+  if ((email != null) === (membershipId != null)) {
+    throw new InvalidLoginInputError();
+  }
+
+  let user: UserWithStaff | null;
+
+  if (email != null) {
+    user = await prisma.user.findUnique({
+      where: { email },
+      include: { staff: true },
+    });
+  } else {
+    const student = await prisma.student.findUnique({
+      where: { membership_id: membershipId! },
+      include: { manager: { include: { staff: true } } },
+    });
+    user = student?.manager ?? null;
+  }
+
+  return loginAccount(prisma, user, password, 'student', membershipId ?? undefined);
+}
+
+export async function selectActiveStudent(
+  prisma: PrismaClient,
+  userId: string,
+  membershipId: number
+): Promise<AuthPayload | null> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { staff: true, students: { orderBy: { membership_id: 'asc' } } },
+  });
+
+  if (!user) {
     return null;
   }
 
-  return { accessToken, user, refreshToken, refreshTokenExpiresAt };
+  return createAuthPayload(user, user.students, membershipId);
+}
+
+export async function linkManagedStudent(
+  prisma: PrismaClient,
+  userId: string,
+  membershipId: number
+): Promise<AuthPayload | null> {
+  return prisma.$transaction(
+    async (tx) => {
+      await tx.$queryRaw`
+        SELECT "id" FROM "users"
+        WHERE "id" = ${userId}::uuid
+        FOR UPDATE
+      `;
+
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        include: { staff: true },
+      });
+
+      if (!user || !matchesLoginPortal(user, 'student')) {
+        return null;
+      }
+
+      const claimed = await tx.student.updateMany({
+        where: { membership_id: membershipId, manager_id: null },
+        data: { manager_id: userId },
+      });
+
+      if (claimed.count !== 1) {
+        const student = await tx.student.findUnique({
+          where: { membership_id: membershipId },
+          select: { membership_id: true },
+        });
+
+        if (!student) {
+          throw new StudentNotFoundError();
+        }
+
+        throw new StudentAlreadyClaimedError();
+      }
+
+      const students = await tx.student.findMany({
+        where: { manager_id: userId },
+        orderBy: { membership_id: 'asc' },
+      });
+      const payload = createAuthPayload(user, students, membershipId);
+
+      if (!payload) {
+        throw new Error('Unable to load the linked student');
+      }
+
+      return payload;
+    },
+    { isolationLevel: 'ReadCommitted' }
+  );
+}
+
+export async function requestAccountSetup(
+  prisma: PrismaClient,
+  email: string,
+  membershipId: number
+): Promise<boolean> {
+  const setupEmail = email.trim();
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(setupEmail)) {
+    throw new InvalidAccountSetupInputError('email', 'Provide a valid email address');
+  }
+
+  const student = await prisma.student.findUnique({
+    where: { membership_id: membershipId },
+  });
+
+  if (!student || student.manager_id !== null) {
+    return true;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { email: setupEmail },
+    include: { staff: true },
+  });
+
+  if (user && !matchesLoginPortal(user, 'student')) {
+    return true;
+  }
+
+  const rawToken = generateAccountSetupToken();
+  const setupUrl = getAccountSetupUrl(rawToken);
+
+  try {
+    await prisma.accountSetupToken.create({
+      data: {
+        email: setupEmail,
+        membership_id: membershipId,
+        user_id: user?.id ?? null,
+        token_hash: hashAccountSetupToken(rawToken),
+        expires_at: getAccountSetupTokenExpiry(),
+      },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      return true;
+    }
+
+    throw error;
+  }
+
+  try {
+    await sendSetPasswordEmail(setupEmail, setupUrl);
+  } catch {
+    console.error('[accountSetup] Failed to send setup email');
+  }
+
+  return true;
+}
+
+function requireAccountSetupField(
+  value: string | null | undefined,
+  field: AccountSetupField
+): string {
+  const trimmed = value?.trim();
+
+  if (!trimmed) {
+    throw new InvalidAccountSetupInputError(field, `${field} is required for a new account`);
+  }
+
+  return trimmed;
+}
+
+export async function completeAccountSetup(
+  prisma: PrismaClient,
+  input: CompleteAccountSetupInput
+): Promise<AuthSession> {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(input.token)) {
+    throw new InvalidAccountSetupTokenError();
+  }
+
+  const tokenHash = hashAccountSetupToken(input.token);
+  const pending = await prisma.accountSetupToken.findUnique({
+    where: { token_hash: tokenHash },
+  });
+
+  if (!pending || pending.used_at !== null || pending.expires_at.getTime() <= Date.now()) {
+    throw new InvalidAccountSetupTokenError();
+  }
+
+  if (input.newPassword.trim().length === 0) {
+    throw new InvalidAccountSetupInputError('newPassword', 'A password is required');
+  }
+
+  const passwordHash = await hashPassword(input.newPassword);
+
+  return prisma.$transaction(
+    async (tx) => {
+      const setup = await tx.accountSetupToken.findUnique({
+        where: { token_hash: tokenHash },
+      });
+
+      if (!setup || setup.used_at !== null || setup.expires_at.getTime() <= Date.now()) {
+        throw new InvalidAccountSetupTokenError();
+      }
+
+      const existingUser = await tx.user.findUnique({
+        where: { email: setup.email },
+        include: { staff: true },
+      });
+
+      if (
+        (setup.user_id !== null && setup.user_id !== existingUser?.id) ||
+        (existingUser && !matchesLoginPortal(existingUser, 'student'))
+      ) {
+        throw new InvalidAccountSetupTokenError();
+      }
+
+      const firstName = existingUser
+        ? existingUser.first_name
+        : requireAccountSetupField(input.firstName, 'firstName');
+      const lastName = existingUser
+        ? existingUser.last_name
+        : requireAccountSetupField(input.lastName, 'lastName');
+      const phoneNumber = existingUser
+        ? existingUser.phone_number
+        : requireAccountSetupField(input.phoneNumber, 'phoneNumber');
+
+      // Keep relations out of this query so Prisma uses an atomic database upsert.
+      // Acquire the account's write lock before consuming the token in every path.
+      const account = await tx.user.upsert({
+        where: { email: setup.email },
+        create: {
+          id: randomUUID(),
+          email: setup.email,
+          first_name: firstName,
+          last_name: lastName,
+          phone_number: phoneNumber,
+          password_hash: passwordHash,
+        },
+        update: { password_hash: passwordHash },
+        select: { id: true },
+      });
+
+      const user = await tx.user.findUnique({
+        where: { id: account.id },
+        include: { staff: true },
+      });
+
+      // Another request may have created the email after the initial lookup.
+      if (
+        !user ||
+        (setup.user_id !== null && setup.user_id !== user.id) ||
+        user.email !== setup.email ||
+        !matchesLoginPortal(user, 'student')
+      ) {
+        throw new InvalidAccountSetupTokenError();
+      }
+
+      const consumed = await tx.accountSetupToken.updateMany({
+        where: { id: setup.id, used_at: null, expires_at: { gt: new Date() } },
+        data: { used_at: new Date() },
+      });
+
+      if (consumed.count !== 1) {
+        throw new InvalidAccountSetupTokenError();
+      }
+
+      const claimed = await tx.student.updateMany({
+        where: { membership_id: setup.membership_id, manager_id: null },
+        data: { manager_id: user.id },
+      });
+
+      if (claimed.count !== 1) {
+        throw new InvalidAccountSetupTokenError();
+      }
+
+      await tx.refresh_tokens.updateMany({
+        where: { user_id: user.id, revoked_at: null },
+        data: { revoked_at: new Date() },
+      });
+
+      const students = await tx.student.findMany({
+        where: { manager_id: user.id },
+        orderBy: { membership_id: 'asc' },
+      });
+      const session = createSession(user, students, setup.membership_id);
+
+      if (!session) {
+        throw new InvalidAccountSetupTokenError();
+      }
+
+      await tx.refresh_tokens.create({
+        data: {
+          id: randomUUID(),
+          user_id: user.id,
+          token_hash: hashRefreshToken(session.refreshToken),
+          expires_at: session.refreshTokenExpiresAt,
+        },
+      });
+
+      return session;
+    },
+    { isolationLevel: 'ReadCommitted' }
+  );
 }
 
 export async function rotateRefreshToken(
   prisma: PrismaClient,
   rawToken: string
-): Promise<StaffSession | null> {
+): Promise<AuthSession | null> {
   const tokenHash = hashRefreshToken(rawToken);
 
   return prisma.$transaction(
@@ -136,7 +600,9 @@ export async function rotateRefreshToken(
 
       const storedToken = await tx.refresh_tokens.findUnique({
         where: { token_hash: tokenHash },
-        include: { user: { include: { staff: true } } },
+        include: {
+          user: { include: { staff: true, students: { orderBy: { membership_id: 'asc' } } } },
+        },
       });
 
       if (!storedToken) {
@@ -156,17 +622,15 @@ export async function rotateRefreshToken(
         return null;
       }
 
-      if (storedToken.expires_at.getTime() <= now.getTime() || !storedToken.user.staff) {
+      if (storedToken.expires_at.getTime() <= now.getTime()) {
         return null;
       }
 
-      const accessToken = generateAccessToken({
-        userId: storedToken.user.id,
-        role: storedToken.user.staff.role,
-        activeStudentId: null,
-      });
-      const refreshToken = generateRefreshToken();
-      const refreshTokenExpiresAt = getRefreshTokenExpiry();
+      const session = createSession(storedToken.user, storedToken.user.students);
+
+      if (!session) {
+        return null;
+      }
 
       await tx.refresh_tokens.update({
         where: { id: storedToken.id },
@@ -176,12 +640,12 @@ export async function rotateRefreshToken(
         data: {
           id: randomUUID(),
           user_id: storedToken.user_id,
-          token_hash: hashRefreshToken(refreshToken),
-          expires_at: refreshTokenExpiresAt,
+          token_hash: hashRefreshToken(session.refreshToken),
+          expires_at: session.refreshTokenExpiresAt,
         },
       });
 
-      return { accessToken, user: storedToken.user, refreshToken, refreshTokenExpiresAt };
+      return session;
     },
     { isolationLevel: 'ReadCommitted' }
   );
