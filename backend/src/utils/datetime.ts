@@ -112,3 +112,80 @@ export function currentLocalMonthYear(timeZone: string = ORG_TIMEZONE): {
   const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
   return { month: get('month'), year: get('year') };
 }
+
+/*
+ * Calendar-day ("YYYY-MM-DD") helpers.
+ *
+ * Some features (e.g. announcements) are described in whole calendar days in the
+ * org's timezone rather than as exact instants. These helpers convert between
+ * a plain 'YYYY-MM-DD' string and the UTC instants that bound that local day.
+ * 'YYYY-MM-DD' strings sort correctly as plain strings, so two calendar days can
+ * be compared with `<` / `>=` without any timezone math.
+ */
+
+function splitLocalDate(value: string): [number, number, number] | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  // Round-trip through Date to reject impossible days such as 2026-02-31.
+  const check = new Date(Date.UTC(year, month - 1, day));
+  if (
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() !== month - 1 ||
+    check.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  return [year, month, day];
+}
+
+/** True if `value` is a real calendar day written as 'YYYY-MM-DD'. */
+export function isValidLocalDate(value: string): boolean {
+  return splitLocalDate(value) !== null;
+}
+
+/**
+ * Today's calendar day in `timeZone` as 'YYYY-MM-DD'. `now` is injectable so
+ * callers (and tests) can use a single consistent instant.
+ */
+export function currentLocalDate(timeZone: string = ORG_TIMEZONE, now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+/** UTC instant of 12:00 AM on the given local day. `value` must be a valid 'YYYY-MM-DD'. */
+export function localDayStartUtc(value: string, timeZone: string = ORG_TIMEZONE): Date {
+  const parts = splitLocalDate(value);
+  if (!parts) {
+    throw new RangeError(`Invalid calendar date: ${value}`);
+  }
+  return zonedWallTimeToUtc(parts[0], parts[1], parts[2], timeZone);
+}
+
+/**
+ * UTC instant of 11:59 PM on the given local day. Computed as "midnight at the
+ * start of the next local day, minus one minute" so it stays correct on the
+ * 23- and 25-hour days around daylight saving changes.
+ */
+export function localDayEndUtc(value: string, timeZone: string = ORG_TIMEZONE): Date {
+  const parts = splitLocalDate(value);
+  if (!parts) {
+    throw new RangeError(`Invalid calendar date: ${value}`);
+  }
+  // `day + 1` may overflow the month; Date.UTC (used inside) normalizes that.
+  const nextMidnight = zonedWallTimeToUtc(parts[0], parts[1], parts[2] + 1, timeZone);
+  return new Date(nextMidnight.getTime() - 60_000);
+}
