@@ -32,6 +32,13 @@ export class StudentNotFoundError extends Error {
   }
 }
 
+export class FeedbackNotFoundError extends Error {
+  constructor() {
+    super('Feedback not found');
+    this.name = 'FeedbackNotFoundError';
+  }
+}
+
 export class FeedbackAlreadyExistsError extends Error {
   constructor() {
     super('Feedback already exists for this student and session; use updateFeedback instead');
@@ -185,6 +192,38 @@ export async function createFeedback(
       if (existingFeedback) {
         throw new FeedbackAlreadyExistsError();
       }
+    }
+
+    throw error;
+  }
+}
+
+export async function updateFeedback(
+  prisma: PrismaClient,
+  input: UpdateFeedbackInput,
+  role: Role
+): Promise<Feedback> {
+  const feedback = await prisma.feedback.findUnique({
+    where: { id: input.id },
+    select: { session: { select: { start_datetime: true } } },
+  });
+
+  if (!feedback) {
+    throw new FeedbackNotFoundError();
+  }
+
+  assertFeedbackEditWindow(role, feedback.session.start_datetime);
+
+  // TODO: Restrict coaches/volunteers to assigned sessions once session assignment exists.
+
+  try {
+    return await prisma.feedback.update({
+      where: { id: input.id },
+      data: { text: input.text, updated_by: input.updated_by },
+    });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      throw new FeedbackNotFoundError();
     }
 
     throw error;
