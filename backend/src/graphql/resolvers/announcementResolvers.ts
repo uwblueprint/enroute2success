@@ -16,8 +16,6 @@ import {
 import { requireRole } from '../../utils/auth';
 import { isValidLocalDate } from '../../utils/datetime';
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 type CreateAnnouncementArgs = {
   input: { message: string; start_date: string; end_date: string };
 };
@@ -29,12 +27,6 @@ type UpdateAnnouncementArgs = {
 
 function badUserInput(message: string, field: string): GraphQLError {
   return new GraphQLError(message, { extensions: { code: 'BAD_USER_INPUT', field } });
-}
-
-function validateId(id: string): void {
-  if (!UUID_PATTERN.test(id)) {
-    throw badUserInput('id must be a valid UUID', 'id');
-  }
 }
 
 function validateMessage(message: string): string {
@@ -52,8 +44,6 @@ function validateDay(value: string, field: string): string {
   return value;
 }
 
-// Translate the service's typed errors into GraphQL errors with stable codes.
-// Anything unrecognized is rethrown and surfaces as INTERNAL_SERVER_ERROR.
 function toGraphQLError(error: unknown): unknown {
   if (error instanceof AnnouncementInvalidInputError) {
     return new GraphQLError(error.message, { extensions: { code: 'BAD_USER_INPUT' } });
@@ -118,8 +108,6 @@ export const announcementResolvers = {
     ) => {
       requireRole(ctx.auth, [PrismaRole.ADMIN]);
 
-      validateId(args.id);
-
       // In GraphQL an input field can be omitted OR sent as an explicit null.
       // The columns can't be cleared, so both mean "leave this field alone".
       const { message, start_date, end_date } = args.input;
@@ -146,8 +134,6 @@ export const announcementResolvers = {
 
     deleteAnnouncement: async (_parent: unknown, args: { id: string }, ctx: GraphQLContext) => {
       requireRole(ctx.auth, [PrismaRole.ADMIN]);
-
-      validateId(args.id);
 
       try {
         return await deleteAnnouncement(ctx.prisma, args.id);
