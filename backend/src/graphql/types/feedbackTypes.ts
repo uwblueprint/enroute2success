@@ -12,16 +12,6 @@ export const feedbackTypeDefs = `#graphql
     updatedAt: String!
   }
 
-  input CreateFeedbackInput {
-    studentId: Int!
-    sessionId: ID!
-    text: String!
-  }
-
-  input UpdateFeedbackInput {
-    text: String!
-  }
-
   extend type Query {
     "All feedback for a session. Staff only."
     sessionFeedback(sessionId: ID!): [Feedback!]!
@@ -34,6 +24,18 @@ export const feedbackTypeDefs = `#graphql
 
     "Feedback for the active student in a session, or null if none exists. Students and parents only."
     mySessionFeedback(sessionId: ID!): Feedback
+  }
+`;
+
+export const feedbackMutationTypeDefs = `#graphql
+  input CreateFeedbackInput {
+    studentId: Int!
+    sessionId: ID!
+    text: String!
+  }
+
+  input UpdateFeedbackInput {
+    text: String!
   }
 
   extend type Mutation {
