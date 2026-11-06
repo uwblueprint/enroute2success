@@ -1,10 +1,10 @@
 /**
- * Dev-only seed for staff, parent/student authentication, sessions, and announcements.
+ * Dev-only seed for authentication, sessions, announcements, and feedback.
  *
  * ⚠️  NOT FOR PRODUCTION. It requires NODE_ENV=development and a DATABASE_URL
  * pointing at the local e2s_db database.
  *
- * Run with: npm run db:seed, or npm run db:seed -- --auth-only to keep sessions.
+ * Run with npm run db:seed for all fixtures or npm run db:seed -- --auth-only for auth fixtures.
  * Add --reset-auth to restore fixture passwords and initial student ownership.
  *
  * Auth fixtures: creates missing accounts and Student profiles. Existing
@@ -14,8 +14,9 @@
  * clears fixture refresh/setup tokens and removes the completed new-User setup
  * account so that setup case can be repeated.
  *
- * Sessions: wipes existing sessions/series and inserts fixture data to
- * exercise the month-browse + session(id) features without an admin UI.
+ * Feedback students: creates two fixtures managed by the nonstaff account. Refuses
+ * conflicting membership IDs and preserves existing matching students.
+ * A full seed replaces feedback, sessions, series, and announcements in one transaction.
  * Fixture coverage (maps to the testing checklist):
  *  - Sessions with AND without `max_attendees`.
  *  - One `draft` and one `cancelled` session.
@@ -23,6 +24,8 @@
  *  - One near midnight on the LAST day of a month (timezone edge case).
  *  - One in a PAST month.
  *  - One belonging to a `session_series`, and one one-off (null series).
+ *  - Feedback for two students, with different staff authors.
+ *  - Sessions today, 7 days ago, 8 days ago, tomorrow, and an empty session.
  *
  * Announcements: wipes existing announcements and inserts one fixture per
  * query bucket (live, upcoming, expired, soft-deleted), created by the seeded
@@ -30,7 +33,7 @@
  */
 import 'dotenv/config';
 import { Role } from '../../generated/client';
-import type { session_status, session_type } from '../../generated/client';
+import type { Prisma, session_status, session_type } from '../../generated/client';
 import {
   ORG_TIMEZONE,
   zonedWallTimeToUtc,
@@ -49,21 +52,30 @@ import {
 import { prisma } from '../prisma';
 
 const DEV_PASSWORD = 'DevOnly!12345';
+const ADMIN_ID = '00000000-0000-4000-8000-000000000001';
+const COACH_ID = '00000000-0000-4000-8000-000000000002';
+const NONSTAFF_ID = '00000000-0000-4000-8000-000000000004';
 const MULTI_PARENT_ID = '00000000-0000-4000-8000-000000000005';
 const SINGLE_PARENT_ID = '00000000-0000-4000-8000-000000000006';
 const SELF_MANAGED_ID = '00000000-0000-4000-8000-000000000007';
 const STUDENT_FIXTURE_NOTE = 'Synthetic development auth fixture; not a real participant.';
 const STUDENT_BIRTH_DATE = new Date('2015-06-07T00:00:00.000Z');
+const FEEDBACK_TIMEZONE = 'America/Toronto';
+
+const feedbackStudents = [
+  { membership_id: 990001, first_name: 'Dev', last_name: 'Feedback A' },
+  { membership_id: 990002, first_name: 'Dev', last_name: 'Feedback B' },
+];
 
 const accounts = [
   {
-    id: '00000000-0000-4000-8000-000000000001',
+    id: ADMIN_ID,
     email: 'admin@e2s.test',
     lastName: 'Admin',
     role: Role.ADMIN,
   },
   {
-    id: '00000000-0000-4000-8000-000000000002',
+    id: COACH_ID,
     email: 'coach@e2s.test',
     lastName: 'Coach',
     role: Role.COACH,
@@ -75,7 +87,7 @@ const accounts = [
     role: Role.VOLUNTEER,
   },
   {
-    id: '00000000-0000-4000-8000-000000000004',
+    id: NONSTAFF_ID,
     email: 'nonstaff@e2s.test',
     lastName: 'Nonstaff',
     role: null,
@@ -422,6 +434,36 @@ async function seedAuthFixtures(resetAuth: boolean): Promise<void> {
   console.log('\nValid development setup tokens expire after one hour. No emails were sent.');
 }
 
+async function seedFeedbackStudents(tx: Prisma.TransactionClient): Promise<void> {
+  for (const student of feedbackStudents) {
+    const existing = await tx.student.findUnique({
+      where: { membership_id: student.membership_id },
+      select: { manager_id: true, first_name: true, last_name: true },
+    });
+
+    if (existing) {
+      if (
+        existing.manager_id !== NONSTAFF_ID ||
+        existing.first_name !== student.first_name ||
+        existing.last_name !== student.last_name
+      ) {
+        throw new SeedError(`Student fixture ID ${student.membership_id} is already in use.`);
+      }
+
+      continue;
+    }
+
+    await tx.student.create({
+      data: {
+        ...student,
+        manager_id: NONSTAFF_ID,
+        allergies: [],
+        birth_date: new Date('2010-01-01T00:00:00.000Z'),
+      },
+    });
+  }
+}
+
 /** Build a UTC Date from local wall-clock parts in the ORG timezone. */
 function local(year: number, month: number, day: number, hour = 0, minute = 0): Date {
   // zonedWallTimeToUtc resolves local midnight; add the intra-day offset.
@@ -429,7 +471,7 @@ function local(year: number, month: number, day: number, hour = 0, minute = 0): 
   return new Date(midnightUtc.getTime() + (hour * 60 + minute) * 60000);
 }
 
-async function seedSessions(): Promise<void> {
+async function seedSessions(tx: Prisma.TransactionClient): Promise<void> {
   const { month, year } = currentLocalMonthYear();
   const prevMonth = month === 1 ? 12 : month - 1;
   const prevMonthYear = month === 1 ? year - 1 : year;
@@ -441,12 +483,8 @@ async function seedSessions(): Promise<void> {
       `Current local month: ${year}-${String(month).padStart(2, '0')}.`
   );
 
-  // Idempotent: clear existing data (FK: delete sessions before series).
-  await prisma.session.deleteMany({});
-  await prisma.session_series.deleteMany({});
-
   // ---- A recurring series that one session will belong to ----
-  const series = await prisma.session_series.create({
+  const series = await tx.session_series.create({
     data: {
       recurrence: 'WEEKLY',
       name: 'Saturday Youth Golf Clinic',
@@ -582,10 +620,10 @@ async function seedSessions(): Promise<void> {
     },
   ];
 
-  await prisma.session.createMany({ data: sessions });
+  await tx.session.createMany({ data: sessions });
 
-  const total = await prisma.session.count();
-  console.log(`✅ Seeded ${total} sessions (+1 session_series).`);
+  const total = await tx.session.count();
+  console.log(`✅ Seeded ${total} calendar sessions (+1 session_series).`);
   console.log(
     `   • Current month (${year}-${String(month).padStart(2, '0')}): ` +
       `${sessions.filter((s) => s.start_datetime >= zonedWallTimeToUtc(year, month, 1) && s.start_datetime < zonedWallTimeToUtc(month === 12 ? year + 1 : year, month === 12 ? 1 : month + 1, 1)).length} sessions ` +
@@ -620,7 +658,7 @@ function localDateOffset(deltaDays: number): string {
  * Dates follow the service's rules: start_date is 12:00 AM and end_date is
  * 11:59 PM org time on their calendar day.
  */
-async function seedAnnouncements(): Promise<void> {
+async function seedAnnouncements(tx: Prisma.TransactionClient): Promise<void> {
   console.log(`🌱 Seeding announcements for local timezone ${ORG_TIMEZONE}.`);
 
   const admin = accounts.find((account) => account.role === Role.ADMIN);
@@ -628,9 +666,8 @@ async function seedAnnouncements(): Promise<void> {
     throw new SeedError('No admin fixture account is defined for announcement ownership.');
   }
 
-  // Idempotent: no other table references announcements, so one deleteMany is safe.
-  // The admin row is created (and left intact) by seedStaffAccounts.
-  await prisma.announcements.deleteMany({});
+  // The admin row is prepared by seedAuthFixtures before the full seed transaction.
+  await tx.announcements.deleteMany({});
 
   const today = localDateOffset(0);
 
@@ -679,7 +716,7 @@ async function seedAnnouncements(): Promise<void> {
     },
   ];
 
-  await prisma.announcements.createMany({ data: announcements });
+  await tx.announcements.createMany({ data: announcements });
 
   const now = Date.now();
   const active = announcements.filter((a) => a.deleted_at == null);
@@ -696,6 +733,87 @@ async function seedAnnouncements(): Promise<void> {
   );
 }
 
+async function seedFeedback(tx: Prisma.TransactionClient): Promise<void> {
+  const sessionIds = {
+    today: '10000000-0000-4000-8000-000000000001',
+    day7: '10000000-0000-4000-8000-000000000002',
+    day8: '10000000-0000-4000-8000-000000000003',
+    future: '10000000-0000-4000-8000-000000000004',
+    empty: '10000000-0000-4000-8000-000000000005',
+  };
+  const now = new Date();
+  const [year, month, day] = currentLocalDate(FEEDBACK_TIMEZONE, now).split('-').map(Number);
+  const sessionFixtures = [
+    { id: sessionIds.today, label: 'Today', daysAgo: 0 },
+    { id: sessionIds.day7, label: 'Day 7', daysAgo: 7 },
+    { id: sessionIds.day8, label: 'Day 8', daysAgo: 8 },
+    { id: sessionIds.future, label: 'Future', daysAgo: -1 },
+    { id: sessionIds.empty, label: 'Today (empty)', daysAgo: 0 },
+  ];
+
+  await tx.session.createMany({
+    data: sessionFixtures.map<Prisma.sessionCreateManyInput>((fixture) => ({
+      id: fixture.id,
+      name: `[Feedback] ${fixture.label}`,
+      status: 'scheduled',
+      session_type: 'chess',
+      start_datetime: zonedWallTimeToUtc(year, month, day - fixture.daysAgo, FEEDBACK_TIMEZONE),
+      end_datetime: zonedWallTimeToUtc(year, month, day - fixture.daysAgo + 1, FEEDBACK_TIMEZONE),
+      image_urls: [],
+    })),
+  });
+
+  const feedbackFixtures = [
+    {
+      id: '20000000-0000-4000-8000-000000000001',
+      receiver: 990001,
+      session_id: sessionIds.today,
+      giver: COACH_ID,
+      text: 'Seed: student A / today',
+    },
+    {
+      id: '20000000-0000-4000-8000-000000000002',
+      receiver: 990002,
+      session_id: sessionIds.today,
+      giver: ADMIN_ID,
+      text: 'Seed: student B / today',
+    },
+    {
+      id: '20000000-0000-4000-8000-000000000003',
+      receiver: 990001,
+      session_id: sessionIds.day7,
+      giver: COACH_ID,
+      text: 'Seed: student A / day 7',
+    },
+    {
+      id: '20000000-0000-4000-8000-000000000004',
+      receiver: 990001,
+      session_id: sessionIds.day8,
+      giver: ADMIN_ID,
+      text: 'Seed: student A / day 8',
+    },
+    {
+      id: '20000000-0000-4000-8000-000000000005',
+      receiver: 990001,
+      session_id: sessionIds.future,
+      giver: ADMIN_ID,
+      text: 'Seed: student A / future',
+    },
+  ];
+
+  await tx.feedback.createMany({
+    data: feedbackFixtures.map((feedback, index) => {
+      const createdAt = new Date(now.getTime() - (feedbackFixtures.length - index) * 60_000);
+      return {
+        ...feedback,
+        updated_by: feedback.giver,
+        created_at: createdAt,
+        updated_at: createdAt,
+      };
+    }),
+  });
+}
+
 async function main(): Promise<void> {
   requireDevelopmentDatabase();
   const args = process.argv.slice(2);
@@ -708,12 +826,27 @@ async function main(): Promise<void> {
 
   if (args.includes('--auth-only')) {
     console.log(
-      'Auth-only seed complete; sessions, session series, and announcements were unchanged.'
+      'Auth-only seed complete. Existing feedback, sessions, session series, and announcements were preserved.'
     );
-  } else {
-    await seedSessions();
-    await seedAnnouncements();
+    return;
   }
+
+  await prisma.$transaction(
+    async (tx) => {
+      await seedFeedbackStudents(tx);
+      // Feedback must be removed before sessions because its FK uses Restrict.
+      await tx.feedback.deleteMany({});
+      await tx.session.deleteMany({});
+      await tx.session_series.deleteMany({});
+      await seedSessions(tx);
+      await seedFeedback(tx);
+      await seedAnnouncements(tx);
+    },
+    { timeout: 15_000 }
+  );
+  console.log(
+    '✅ Feedback fixtures ready: students 990001/990002, 5 sessions, and 5 feedback entries.'
+  );
 }
 
 main()

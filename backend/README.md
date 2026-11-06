@@ -1,24 +1,30 @@
-# Backend development seed data
+# Backend development fixtures and manual checks
 
-The dev seed (`src/scripts/seed.ts`) creates synthetic staff accounts, parent/self-managed User
-accounts, Student profiles, and development setup tokens for manual authentication checks. By default
-it also replaces sessions and announcements with fixture data for the session-browse and announcement
-features. It does not run tests, send email, or create refresh tokens; logins and account completion
-create refresh sessions normally.
+The dev seed (`src/scripts/seed.ts`) creates synthetic staff accounts, parent and student accounts,
+Student profiles, and development setup tokens for manual authentication checks. A full seed also
+adds fixtures for sessions, announcements, and feedback.
 
 ## Run the seed
 
-The Docker backend and PostgreSQL services must already be running, the Prisma client must be generated,
-and the migrations must be applied. Run these commands from the repository root:
+Start the local Docker backend and PostgreSQL services. The Compose backend generates the Prisma
+client on startup. Apply migrations and seed the auth fixtures from the repository root.
 
 ```sh
 docker compose exec backend npm run prisma:migrate:deploy
 docker compose exec backend npm run db:seed -- --auth-only
 ```
 
-`--auth-only` leaves sessions, session series, and announcements untouched. Omit it to also replace
-session and announcement fixtures, as the original script did. Apply migrations and generate the Prisma client before seeding. Review
-the existing staff-role migration before applying the migration history to a populated database.
+`--auth-only` preserves feedback, feedback students, sessions, session series, and announcements.
+
+For calendar, announcement, or feedback checks, run a full seed. It replaces **all feedback, sessions,
+session series, and announcements** in the local development database, including rows added during
+earlier manual checks.
+
+```sh
+docker compose exec backend npm run db:seed
+```
+
+Review the existing staff-role migration before applying the migration history to a populated database.
 
 To restore forgotten fixture passwords and repeat the signup/linking cases, run:
 
@@ -30,8 +36,8 @@ docker compose exec backend npm run db:seed -- --auth-only --reset-auth
 sessions, restores the eight fixture students' initial manager assignments, clears setup tokens for
 those membership IDs, and prints fresh setup tokens. It also removes the completed
 `setup.new@e2s.test` account so that the new-account setup case can be repeated. Account contact
-details and Student profile fields are preserved. Session, session-series, and announcement fixtures remain unchanged
-when paired with `--auth-only`.
+details and Student profile fields are preserved. Pair `--reset-auth` with `--auth-only` to preserve
+feedback, sessions, session series, and announcements.
 
 The reset is limited to these reserved auth fixtures. Other accounts and nonfixture students are
 preserved. If the new-User setup account has a staff role, announcements, nonfixture students, or
@@ -40,6 +46,9 @@ setup tokens for nonfixture memberships, the reset rolls back rather than deleti
 The seed requires `NODE_ENV=development` and a `DATABASE_URL` pointing to the `e2s_db` database on port
 5432 via host `postgres`, `localhost`, or `127.0.0.1`, so it can also be run from `backend/` on the host
 with `npm run db:seed`. It refuses other targets, including the `pern_db` configuration.
+
+Compose defaults to `pern_db`. Set `POSTGRES_DB=e2s_db` in your local Compose configuration before
+initializing the development database. Login requires the backend's `JWT_SECRET` configuration.
 
 Prisma CLI commands preserve a nonempty runtime `DATABASE_URL`, including the URL supplied by
 Docker Compose. `backend/.env` is a fallback for local CLI commands. Apply migrations to the same
@@ -82,15 +91,16 @@ coordination.
 
 ## Session fixtures
 
-A full seed (without `--auth-only`) deletes all existing sessions and session series, then inserts one weekly series and seven
-sessions relative to the current month in the org timezone: draft and cancelled sessions, several on the
-same day, one near midnight on the last day of the month, and one in the previous month.
+A full seed inserts one weekly series and seven calendar sessions relative to the current month in
+the org timezone. They include draft and cancelled sessions, several on the same day, one near
+midnight on the last day of the month, and one in the previous month. The
+[feedback fixtures](#feedback-fixtures) add five sessions, for 12 sessions in total.
 
 ## Announcement fixtures
 
-Every run also deletes all existing announcements and inserts five, created by `admin@e2s.test`, one per
-query bucket relative to today in the org timezone: two live now (one single-day, one multi-day), one
-upcoming, one expired, and one soft-deleted while live. `currentAnnouncements` returns the two live ones,
+A full seed inserts five announcements created by `admin@e2s.test` relative to today in the org
+timezone. Two are live now (one single-day and one multi-day), one is upcoming, one is expired, and
+one was soft-deleted while live. `currentAnnouncements` returns the two live ones,
 `liveAndUpcomingAnnouncements` adds the upcoming one, and `pastAnnouncements` returns the expired and
 soft-deleted ones.
 
@@ -113,7 +123,8 @@ The profiles use first name `Dev`, the corresponding role label as the last name
 number `0000000000`. These are synthetic accounts. Their UUIDs are fixed in the seed script.
 
 The three new User IDs end in `0005` (multi-parent), `0006` (single-parent), and `0007` (self-managed).
-The original nonstaff User ID ends in `0004` and initially has no students.
+The original nonstaff User ID ends in `0004`. An auth-only seed on a fresh database leaves it without
+students. A full seed assigns the two [feedback students](#feedback-fixtures) to this account.
 
 ## Student fixtures
 
@@ -160,6 +171,11 @@ Existing Student profiles and their ownership are preserved. A conflicting accou
 or Student identity rolls back all auth changes before touching sessions. Unrelated users are not
 deleted. An already-claimed setup case is skipped rather than reset.
 
+A full seed checks for conflicting feedback student IDs before clearing data. It creates any missing
+feedback students and replaces feedback, sessions, session series, and announcements in a separate
+transaction. Feedback is deleted before sessions because of the foreign key. A failure rolls back
+all changes in that transaction.
+
 If a password-changing test changes a fixture password, an ordinary rerun preserves it. Use
 `--auth-only --reset-auth` to restore the seeded passwords, or use the admin password-reset mutation
 to change one account's password.
@@ -199,7 +215,7 @@ token before these requests so context validation does not reject the request fi
 | Staff access                | `loginStaff` for admin/coach/volunteer returns the matching role, no managed students, and no active student.                                                                                                                     |
 | Portal restrictions         | Staff credentials through `loginStudent`, or nonstaff/parent/student credentials through `loginStaff`, return `UNAUTHENTICATED`.                                                                                                  |
 | Password/input failures     | Wrong passwords return `UNAUTHENTICATED`. Both or neither login identifier returns `BAD_USER_INPUT`.                                                                                                                              |
-| Zero profiles               | Email login for `nonstaff@e2s.test` succeeds with an empty list and null active student.                                                                                                                                          |
+| Zero profiles               | After an auth-only seed on a fresh database, email login for `nonstaff@e2s.test` returns no students and a null active student.                                                                                                   |
 | Multiple profiles           | Email login for the multi-parent returns `[900001, 900002]` and null active student. Membership login selects the requested sibling.                                                                                              |
 | One/self-managed profile    | Single-parent email login selects `900003`; self-managed email or membership login selects `900004`.                                                                                                                              |
 | Account queries             | `me { students }` and `myStudents` returns only the caller's students, sorted by membership ID. An anonymous request returns `UNAUTHENTICATED`.                                                                                   |
@@ -338,3 +354,249 @@ the newly linked student active. Refresh-token records and cookies are unchanged
 Missing memberships return `NOT_FOUND`; already-linked memberships return `CONFLICT`, including
 memberships already managed by the caller. Anonymous requests return `UNAUTHENTICATED`, and staff
 accounts return `FORBIDDEN`. No new migration is needed for this mutation.
+
+## Feedback fixtures
+
+Run a full seed to prepare the feedback fixtures. Students **A (`990001`)** and **B (`990002`)** are
+both managed by `nonstaff@e2s.test`. Their names are
+`Dev Feedback A` and `Dev Feedback B`. Existing matching student records are left unchanged.
+
+The feedback sessions use fixed UUIDs and dates relative to the day you seed in `America/Toronto`,
+including daylight saving. They start at local midnight and end at the next local midnight. Reseed if
+the Toronto calendar date changes before your timing checks.
+
+| Session       | UUID                                   | Date at seeding              |
+| ------------- | -------------------------------------- | ---------------------------- |
+| Today         | `10000000-0000-4000-8000-000000000001` | Today                        |
+| Day 7         | `10000000-0000-4000-8000-000000000002` | Seven calendar days ago      |
+| Day 8         | `10000000-0000-4000-8000-000000000003` | Eight calendar days ago      |
+| Future        | `10000000-0000-4000-8000-000000000004` | Tomorrow                     |
+| Today (empty) | `10000000-0000-4000-8000-000000000005` | Today; initially no feedback |
+
+| Feedback UUID                          | Student | Session | Original author |
+| -------------------------------------- | ------- | ------- | --------------- |
+| `20000000-0000-4000-8000-000000000001` | A       | Today   | Coach           |
+| `20000000-0000-4000-8000-000000000002` | B       | Today   | Admin           |
+| `20000000-0000-4000-8000-000000000003` | A       | Day 7   | Coach           |
+| `20000000-0000-4000-8000-000000000004` | A       | Day 8   | Admin           |
+| `20000000-0000-4000-8000-000000000005` | A       | Future  | Admin           |
+
+Every seeded entry initially has `updated_by = giver` and `updated_at = created_at`. The Today entry for
+A has an earlier creation timestamp than B's entry, regardless of insertion ordering. Old and future
+entries are inserted directly by the seed to make both permitted and forbidden update cases available.
+
+## Authenticate feedback requests
+
+Send the following operation to `http://localhost:4000/graphql` in a GraphQL client:
+
+```graphql
+mutation Login($email: String!, $password: String!) {
+  loginStaff(email: $email, password: $password) {
+    accessToken
+    user {
+      id
+      role
+    }
+  }
+}
+```
+
+Variables for a coach login (substitute the admin or volunteer email to switch roles):
+
+```json
+{
+  "email": "coach@e2s.test",
+  "password": "DevOnly!12345"
+}
+```
+
+Use the returned access token in the request headers:
+
+```json
+{ "Authorization": "Bearer YOUR_ACCESS_TOKEN" }
+```
+
+Staff fixture IDs end in `0001` for admin, `0002` for coach, and `0003` for volunteer, with the full
+form `00000000-0000-4000-8000-000000000001` for admin. Use these to verify author/editor fields.
+
+### Student tokens
+
+Use `loginStudent` to sign in as the nonstaff fixture with a selected profile.
+
+```graphql
+mutation LoginForFeedback($input: LoginInput!) {
+  loginStudent(input: $input) {
+    accessToken
+    activeStudent {
+      membershipId
+    }
+  }
+}
+```
+
+```json
+{ "input": { "membershipId": 990001, "password": "DevOnly!12345" } }
+```
+
+Use membership ID `990002` for B. To obtain a token with no active student, replace `membershipId`
+with the `email` field set to `nonstaff@e2s.test`. Use the returned token in the Authorization header.
+
+Access tokens expire after **15 minutes**. Log in again to refresh them. Reseed when you need to
+restore the feedback fixtures or update the session dates.
+
+## Feedback read checks
+
+Run the baseline reads before mutations, since successful writes change the expected fixture results.
+
+With any staff token:
+
+```graphql
+query StaffFeedback($sessionId: ID!, $studentId: Int!) {
+  sessionFeedback(sessionId: $sessionId) {
+    id
+    studentId
+    sessionId
+    giverId
+    updatedById
+    text
+    createdAt
+    updatedAt
+  }
+  studentSessionFeedback(studentId: $studentId, sessionId: $sessionId) {
+    id
+    studentId
+    text
+  }
+}
+```
+
+```json
+{
+  "sessionId": "10000000-0000-4000-8000-000000000001",
+  "studentId": 990001
+}
+```
+
+Expect Today feedback for A then B, in ascending `createdAt` order. The single-student lookup returns
+only A's entry. Check that IDs map correctly and timestamps are ISO strings. The empty session returns
+`[]` and `null` respectively. With an absent session UUID, `sessionFeedback` returns `NOT_FOUND`;
+the nullable `studentSessionFeedback` lookup returns `null` when queried on its own.
+
+With a STUDENT token:
+
+```graphql
+query StudentFeedback($sessionId: ID!) {
+  myFeedback {
+    id
+    studentId
+    sessionId
+    text
+  }
+  mySessionFeedback(sessionId: $sessionId) {
+    id
+    studentId
+    text
+  }
+}
+```
+
+```json
+{ "sessionId": "10000000-0000-4000-8000-000000000002" }
+```
+
+With A's token, expect only A's four entries, ordered Future, Today, Day 7, Day 8 by session date.
+The detail lookup returns A's Day 7 entry. With B's token, expect only B's Today entry and `null` for
+Day 7, even though A has feedback in that session. An absent session UUID makes `mySessionFeedback`
+return `NOT_FOUND`.
+
+## Feedback create checks
+
+Use a coach token and the initially empty Today session:
+
+```graphql
+mutation CreateFeedback($input: CreateFeedbackInput!) {
+  createFeedback(input: $input) {
+    id
+    studentId
+    sessionId
+    giverId
+    updatedById
+    text
+    createdAt
+    updatedAt
+  }
+}
+```
+
+```json
+{
+  "input": {
+    "studentId": 990001,
+    "sessionId": "10000000-0000-4000-8000-000000000005",
+    "text": "  Local feedback check  "
+  }
+}
+```
+
+Expect one new entry with text `Local feedback check` and both staff IDs equal to the coach's ID.
+Repeat the request to get `BAD_USER_INPUT`, with a message directing you to `updateFeedback`.
+Substitute an absent student ID or session UUID to get `NOT_FOUND`. For an absent UUID you can use
+`ffffffff-ffff-4fff-8fff-ffffffffffff`, which the seed does not create.
+
+## Feedback update checks
+
+Log in as the volunteer and edit the coach-authored Today entry:
+
+```graphql
+mutation UpdateFeedback($id: ID!, $input: UpdateFeedbackInput!) {
+  updateFeedback(id: $id, input: $input) {
+    id
+    studentId
+    sessionId
+    giverId
+    updatedById
+    text
+    createdAt
+    updatedAt
+  }
+}
+```
+
+```json
+{
+  "id": "20000000-0000-4000-8000-000000000001",
+  "input": { "text": "  Reviewed by volunteer  " }
+}
+```
+
+Expect the same feedback ID, student, session, original coach `giverId`, and `createdAt`. The text
+becomes `Reviewed by volunteer`, `updatedById` becomes the volunteer's ID, and `updatedAt` advances.
+Rerun the staff read to confirm the session still has two entries. Updating an absent feedback UUID
+returns `NOT_FOUND`.
+
+## Feedback role, validation, and timing checklist
+
+Check `errors[].extensions.code` for failures. These operations are manual checks; the seed does not
+mark them as passed. Reseed between independent successful create scenarios so an existing pair does
+not turn a timing check into a duplicate check. For timing creates, use B (`990002`), whose Day 7,
+Day 8, and Future pairs are initially empty. For timing updates, use A's seeded entries above.
+
+| Request                                                                  | Expected result                |
+| ------------------------------------------------------------------------ | ------------------------------ |
+| Any of the four feedback queries or two mutations, without Authorization | `UNAUTHENTICATED`              |
+| STUDENT token calling either staff query or either mutation              | `FORBIDDEN`                    |
+| Any staff role calling either `my...` query                              | `FORBIDDEN`                    |
+| STUDENT token with no active student calling either `my...` query        | `FORBIDDEN`                    |
+| Create/update with `text` set to `"   "` using a staff token             | `BAD_USER_INPUT`, field `text` |
+| Coach creates/updates Today feedback                                     | Success                        |
+| Volunteer creates/updates Today feedback                                 | Success                        |
+| Admin creates/updates Today feedback                                     | Success                        |
+| Coach creates/updates Day 7 feedback                                     | Success                        |
+| Volunteer creates/updates Day 7 feedback                                 | Success                        |
+| Coach creates/updates Day 8 feedback                                     | `FORBIDDEN`                    |
+| Volunteer creates/updates Day 8 feedback                                 | `FORBIDDEN`                    |
+| Coach/volunteer creates/updates Future feedback                          | `FORBIDDEN`                    |
+| Admin creates/updates Day 8 or Future feedback                           | Success                        |
+
+Enrollment and staff-to-session assignment are still the ticket's explicit TODOs. Any existing student
+and session pair is currently accepted, subject to staff authorization, uniqueness, and timing rules.
