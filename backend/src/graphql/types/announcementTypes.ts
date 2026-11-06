@@ -1,11 +1,11 @@
 export const announcementTypeDefs = `#graphql
-  type AnnouncementDTO {
+  type Announcement {
     id: ID!
     message: String!
     "ISO 8601 instant: 12:00 AM org time on the first day"
     start_date: String!
     "ISO 8601 instant: 11:59 PM org time on the last day"
-    end_date: String
+    end_date: String!
     "ISO 8601. Null unless the announcement was soft-deleted"
     deleted_at: String
     created_by: ID!
@@ -33,23 +33,23 @@ export const announcementTypeDefs = `#graphql
 
   extend type Query {
     "Announcements that are live right now. Oldest start first."
-    currentAnnouncements: [AnnouncementDTO!]!
+    currentAnnouncements: [Announcement!]!
 
     "ADMIN only. Not deleted and not yet ended (live or upcoming). Oldest start first."
-    liveAndUpcomingAnnouncements: [AnnouncementDTO!]!
+    liveAndUpcomingAnnouncements: [Announcement!]!
 
     "ADMIN only. Ended or deleted announcements. Newest start first."
-    pastAnnouncements: [AnnouncementDTO!]!
+    pastAnnouncements: [Announcement!]!
   }
 
   extend type Mutation {
     "ADMIN only."
-    createAnnouncement(input: CreateAnnouncementInput!): AnnouncementDTO!
+    createAnnouncement(input: CreateAnnouncementInput!): Announcement!
 
     "ADMIN only. Live or upcoming announcements only."
-    updateAnnouncement(id: ID!, input: UpdateAnnouncementInput!): AnnouncementDTO!
+    updateAnnouncement(id: ID!, input: UpdateAnnouncementInput!): Announcement!
 
     "ADMIN only. Soft delete; live or upcoming announcements only."
-    deleteAnnouncement(id: ID!): AnnouncementDTO!
+    deleteAnnouncement(id: ID!): Announcement!
   }
 `;

@@ -1,5 +1,6 @@
 import { GraphQLError } from 'graphql';
 import { Role as PrismaRole } from '../../../generated/client';
+import type { Announcements } from '../../../generated/client';
 import type { GraphQLContext } from '../context';
 import {
   AnnouncementInvalidInputError,
@@ -12,7 +13,6 @@ import {
   listPastAnnouncements,
   updateAnnouncement,
 } from '../../services/announcementService';
-import type { AnnouncementDTO } from '../../services/announcementService';
 import { requireRole } from '../../utils/auth';
 import { isValidLocalDate } from '../../utils/datetime';
 
@@ -160,11 +160,11 @@ export const announcementResolvers = {
 
   // Field resolvers: the schema declares these dates as String, but the service
   // returns Date objects. These turn each Date into an ISO 8601 string.
-  AnnouncementDTO: {
-    start_date: (a: AnnouncementDTO) => a.start_date.toISOString(),
-    end_date: (a: AnnouncementDTO) => a.end_date?.toISOString() ?? null,
-    deleted_at: (a: AnnouncementDTO) => a.deleted_at?.toISOString() ?? null,
-    createdAt: (a: AnnouncementDTO) => a.createdAt.toISOString(),
-    updatedAt: (a: AnnouncementDTO) => a.updatedAt.toISOString(),
+  Announcement: {
+    start_date: (a: Announcements) => a.start_date.toISOString(),
+    end_date: (a: Announcements) => a.end_date.toISOString(),
+    deleted_at: (a: Announcements) => a.deleted_at?.toISOString() ?? null,
+    createdAt: (a: Announcements) => a.created_at.toISOString(),
+    updatedAt: (a: Announcements) => a.updated_at.toISOString(),
   },
 };
