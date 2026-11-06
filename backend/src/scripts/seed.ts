@@ -1,5 +1,5 @@
 /**
- * Dev-only seed for staff, parent/student authentication, and sessions.
+ * Dev-only seed for staff, parent/student authentication, sessions, and announcements.
  *
  * ⚠️  NOT FOR PRODUCTION. It requires NODE_ENV=development and a DATABASE_URL
  * pointing at the local e2s_db database.
@@ -23,11 +23,22 @@
  *  - One near midnight on the LAST day of a month (timezone edge case).
  *  - One in a PAST month.
  *  - One belonging to a `session_series`, and one one-off (null series).
+ *
+ * Announcements: wipes existing announcements and inserts one fixture per
+ * query bucket (live, upcoming, expired, soft-deleted), created by the seeded
+ * admin account.
  */
 import 'dotenv/config';
 import { Role } from '../../generated/client';
 import type { session_status, session_type } from '../../generated/client';
-import { ORG_TIMEZONE, zonedWallTimeToUtc, currentLocalMonthYear } from '../utils/datetime';
+import {
+  ORG_TIMEZONE,
+  zonedWallTimeToUtc,
+  currentLocalMonthYear,
+  currentLocalDate,
+  localDayStartUtc,
+  localDayEndUtc,
+} from '../utils/datetime';
 import { hashPassword } from '../utils/passwords';
 import {
   generateAccountSetupToken,
@@ -585,6 +596,106 @@ async function seedSessions(): Promise<void> {
   );
 }
 
+type SeededAnnouncement = {
+  message: string;
+  start_date: Date;
+  end_date: Date;
+  created_by: string;
+  deleted_at?: Date;
+};
+
+/** The org-local calendar day `deltaDays` from today, as 'YYYY-MM-DD'. */
+function localDateOffset(deltaDays: number): string {
+  const [year, month, day] = currentLocalDate().split('-').map(Number);
+  // Calendar arithmetic in UTC, so daylight saving never shifts the result.
+  return new Date(Date.UTC(year, month - 1, day + deltaDays)).toISOString().slice(0, 10);
+}
+
+/**
+ * Seed announcement fixtures covering every query bucket:
+ *  - currentAnnouncements:          live right now, not deleted
+ *  - liveAndUpcomingAnnouncements:  not deleted, not yet ended
+ *  - pastAnnouncements:             ended OR soft-deleted
+ *
+ * Dates follow the service's rules: start_date is 12:00 AM and end_date is
+ * 11:59 PM org time on their calendar day.
+ */
+async function seedAnnouncements(): Promise<void> {
+  console.log(`🌱 Seeding announcements for local timezone ${ORG_TIMEZONE}.`);
+
+  const admin = accounts.find((account) => account.role === Role.ADMIN);
+  if (!admin) {
+    throw new SeedError('No admin fixture account is defined for announcement ownership.');
+  }
+
+  // Idempotent: no other table references announcements, so one deleteMany is safe.
+  // The admin row is created (and left intact) by seedStaffAccounts.
+  await prisma.announcements.deleteMany({});
+
+  const today = localDateOffset(0);
+
+  const announcements: SeededAnnouncement[] = [
+    // 1) LIVE now, single day. In current and live-and-upcoming.
+    {
+      message: 'Welcome back! The clubhouse is open all day today.',
+      start_date: localDayStartUtc(today),
+      end_date: localDayEndUtc(today),
+      created_by: admin.id,
+    },
+
+    // 2) LIVE now, multi-day: started 3 days ago, ends in 3 days.
+    //    In current and live-and-upcoming.
+    {
+      message: 'Spring registration is open this week — sign up at the front desk.',
+      start_date: localDayStartUtc(localDateOffset(-3)),
+      end_date: localDayEndUtc(localDateOffset(3)),
+      created_by: admin.id,
+    },
+
+    // 3) UPCOMING: starts in 5 days, ends in 7. Not in current; in live-and-upcoming.
+    {
+      message: 'Youth golf tournament next week — registration closes Friday.',
+      start_date: localDayStartUtc(localDateOffset(5)),
+      end_date: localDayEndUtc(localDateOffset(7)),
+      created_by: admin.id,
+    },
+
+    // 4) EXPIRED: started 10 days ago, ended 3 days ago. Only in past.
+    {
+      message: 'Thanks to everyone who attended last month’s chess open!',
+      start_date: localDayStartUtc(localDateOffset(-10)),
+      end_date: localDayEndUtc(localDateOffset(-3)),
+      created_by: admin.id,
+    },
+
+    // 5) SOFT-DELETED while its window is live. Excluded from current and
+    //    live-and-upcoming (exercises the deleted_at filter); shown in past.
+    {
+      message: 'Deleted: duplicate facilities-closure notice.',
+      start_date: localDayStartUtc(localDateOffset(-1)),
+      end_date: localDayEndUtc(localDateOffset(2)),
+      created_by: admin.id,
+      deleted_at: new Date(),
+    },
+  ];
+
+  await prisma.announcements.createMany({ data: announcements });
+
+  const now = Date.now();
+  const active = announcements.filter((a) => a.deleted_at == null);
+  const liveNow = active.filter(
+    (a) => a.start_date.getTime() <= now && a.end_date.getTime() >= now
+  ).length;
+  const upcoming = active.filter((a) => a.start_date.getTime() > now).length;
+  const expired = active.filter((a) => a.end_date.getTime() < now).length;
+  const deleted = announcements.length - active.length;
+
+  console.log(`✅ Seeded ${announcements.length} announcements.`);
+  console.log(
+    `   • Live now: ${liveNow}  • Upcoming: ${upcoming}  • Expired: ${expired}  • Soft-deleted: ${deleted}.`
+  );
+}
+
 async function main(): Promise<void> {
   requireDevelopmentDatabase();
   const args = process.argv.slice(2);
@@ -596,9 +707,12 @@ async function main(): Promise<void> {
   await seedAuthFixtures(args.includes('--reset-auth'));
 
   if (args.includes('--auth-only')) {
-    console.log('Auth-only seed complete; sessions and session series were unchanged.');
+    console.log(
+      'Auth-only seed complete; sessions, session series, and announcements were unchanged.'
+    );
   } else {
     await seedSessions();
+    await seedAnnouncements();
   }
 }
 
