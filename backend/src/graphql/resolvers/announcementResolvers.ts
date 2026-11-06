@@ -19,7 +19,7 @@ import { isValidLocalDate } from '../../utils/datetime';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type CreateAnnouncementArgs = {
-  input: { message: string; start_date: string; end_date?: string | null };
+  input: { message: string; start_date: string; end_date: string };
 };
 
 type UpdateAnnouncementArgs = {
@@ -98,8 +98,7 @@ export const announcementResolvers = {
 
       const message = validateMessage(args.input.message);
       const startDate = validateDay(args.input.start_date, 'start_date');
-      const endDate =
-        args.input.end_date != null ? validateDay(args.input.end_date, 'end_date') : null;
+      const endDate = validateDay(args.input.end_date, 'end_date');
 
       try {
         return await createAnnouncement(ctx.prisma, caller.userId, {

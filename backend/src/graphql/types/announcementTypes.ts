@@ -19,8 +19,8 @@ export const announcementTypeDefs = `#graphql
     message: String!
     "Calendar day as YYYY-MM-DD, today or later"
     start_date: String!
-    "Calendar day as YYYY-MM-DD, today or later and not before start_date. Defaults to start_date"
-    end_date: String
+    "Calendar day as YYYY-MM-DD, today or later and not before start_date"
+    end_date: String!
   }
 
   input UpdateAnnouncementInput {
