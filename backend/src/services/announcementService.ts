@@ -2,33 +2,15 @@ import { Prisma } from '../../generated/client';
 import type { Announcements, PrismaClient } from '../../generated/client';
 import { currentLocalDate, localDayEndUtc, localDayStartUtc } from '../utils/datetime';
 
-/**
- * What the rest of the app sees for an announcement. Field names match the
- * GraphQL type (`createdAt`, not the Prisma model's `created_at`).
- *
- * `start_date` is the UTC instant of 12:00 AM org-local time on the start day,
- * and `end_date` is 11:59 PM org-local time on the end day.
- */
-export type AnnouncementDTO = {
-  id: string;
-  message: string;
-  start_date: Date;
-  end_date: Date | null;
-  deleted_at: Date | null;
-  created_by: string;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
 /** Dates are calendar days written 'YYYY-MM-DD' in the org's timezone. */
-export type CreateAnnouncementDTO = {
+export type CreateAnnouncementInput = {
   message: string;
   start_date: string;
   end_date?: string | null;
 };
 
 /** Dates are calendar days written 'YYYY-MM-DD' in the org's timezone. */
-export type UpdateAnnouncementDTO = {
+export type UpdateAnnouncementInput = {
   message?: string;
   start_date?: string;
   end_date?: string;
@@ -57,62 +39,49 @@ export class AnnouncementNotModifiableError extends Error {
   }
 }
 
-function toDTO(row: Announcements): AnnouncementDTO {
-  return {
-    id: row.id,
-    message: row.message,
-    start_date: row.start_date,
-    end_date: row.end_date,
-    deleted_at: row.deleted_at,
-    created_by: row.created_by,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
 // "Live or upcoming" = not deleted and the end of its last day hasn't passed.
 function liveOrUpcomingWhere(now: Date): { deleted_at: null; end_date: { gte: Date } } {
   return { deleted_at: null, end_date: { gte: now } };
 }
 
 /** Announcements that are live right now. Oldest start first. */
-export async function listCurrentAnnouncements(prisma: PrismaClient): Promise<AnnouncementDTO[]> {
+export async function listCurrentAnnouncements(prisma: PrismaClient): Promise<Announcements[]> {
   const now = new Date();
   const rows = await prisma.announcements.findMany({
     where: { ...liveOrUpcomingWhere(now), start_date: { lte: now } },
     orderBy: { start_date: 'asc' },
   });
-  return rows.map(toDTO);
+  return rows;
 }
 
 /** Announcements that are live now or start in the future. Oldest start first. */
 export async function listLiveAndUpcomingAnnouncements(
   prisma: PrismaClient
-): Promise<AnnouncementDTO[]> {
+): Promise<Announcements[]> {
   const rows = await prisma.announcements.findMany({
     where: liveOrUpcomingWhere(new Date()),
     orderBy: { start_date: 'asc' },
   });
-  return rows.map(toDTO);
+  return rows;
 }
 
 /**
  * History for admins: everything that is no longer live or upcoming, meaning
  * it has expired OR was soft-deleted. Newest start first.
  */
-export async function listPastAnnouncements(prisma: PrismaClient): Promise<AnnouncementDTO[]> {
+export async function listPastAnnouncements(prisma: PrismaClient): Promise<Announcements[]> {
   const rows = await prisma.announcements.findMany({
     where: { OR: [{ end_date: { lt: new Date() } }, { deleted_at: { not: null } }] },
     orderBy: { start_date: 'desc' },
   });
-  return rows.map(toDTO);
+  return rows;
 }
 
 export async function createAnnouncement(
   prisma: PrismaClient,
   createdBy: string,
-  input: CreateAnnouncementDTO
-): Promise<AnnouncementDTO> {
+  input: CreateAnnouncementInput
+): Promise<Announcements> {
   const today = currentLocalDate();
   const startDay = input.start_date;
   // The table requires an end date, so an announcement with none ends on the
@@ -138,7 +107,7 @@ export async function createAnnouncement(
       created_by: createdBy,
     },
   });
-  return toDTO(row);
+  return row;
 }
 
 // Loads an announcement and confirms it can still be changed.
@@ -165,13 +134,13 @@ async function updateIfModifiable(
   id: string,
   now: Date,
   data: Prisma.AnnouncementsUpdateInput
-): Promise<AnnouncementDTO> {
+): Promise<Announcements> {
   try {
     const row = await prisma.announcements.update({
       where: { id, ...liveOrUpcomingWhere(now) },
       data,
     });
-    return toDTO(row);
+    return row;
   } catch (error) {
     // P2025: no row matched the WHERE clause.
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
@@ -184,8 +153,8 @@ async function updateIfModifiable(
 export async function updateAnnouncement(
   prisma: PrismaClient,
   id: string,
-  input: UpdateAnnouncementDTO
-): Promise<AnnouncementDTO> {
+  input: UpdateAnnouncementInput
+): Promise<Announcements> {
   const now = new Date();
   const existing = await getModifiableOrThrow(prisma, id, now);
 
@@ -227,10 +196,7 @@ export async function updateAnnouncement(
 }
 
 /** Soft delete: sets `deleted_at` instead of removing the row. */
-export async function deleteAnnouncement(
-  prisma: PrismaClient,
-  id: string
-): Promise<AnnouncementDTO> {
+export async function deleteAnnouncement(prisma: PrismaClient, id: string): Promise<Announcements> {
   const now = new Date();
   await getModifiableOrThrow(prisma, id, now);
   return updateIfModifiable(prisma, id, now, { deleted_at: now });
