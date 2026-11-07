@@ -180,6 +180,8 @@ export const feedbackResolvers = {
         });
       }
 
+      validateUuid(args.id, 'id');
+
       try {
         return await updateFeedback(
           ctx.prisma,
