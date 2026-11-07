@@ -21,6 +21,16 @@ type StudentSessionFeedbackArgs = SessionFeedbackArgs & {
 
 const staffRoles = [Role.ADMIN, Role.COACH, Role.VOLUNTEER] as const;
 
+function validateUuid(value: string, field: string): void {
+  const uuid = value.startsWith('{') && value.endsWith('}') ? value.slice(1, -1) : value;
+
+  if (!/^[0-9a-f]{4}(?:-?[0-9a-f]{4}){7}$/i.test(uuid)) {
+    throw new GraphQLError(`${field} must be a valid UUID`, {
+      extensions: { code: 'BAD_USER_INPUT', field },
+    });
+  }
+}
+
 export const feedbackResolvers = {
   Query: {
     sessionFeedback: async (
@@ -29,6 +39,7 @@ export const feedbackResolvers = {
       ctx: GraphQLContext
     ): Promise<Feedback[]> => {
       requireRole(ctx.auth, staffRoles);
+      validateUuid(args.sessionId, 'sessionId');
 
       try {
         return await listSessionFeedback(ctx.prisma, args.sessionId);
@@ -49,6 +60,7 @@ export const feedbackResolvers = {
       ctx: GraphQLContext
     ): Promise<Feedback | null> => {
       requireRole(ctx.auth, staffRoles);
+      validateUuid(args.sessionId, 'sessionId');
 
       return getStudentSessionFeedback(ctx.prisma, args.studentId, args.sessionId);
     },
@@ -81,6 +93,8 @@ export const feedbackResolvers = {
           extensions: { code: 'FORBIDDEN' },
         });
       }
+
+      validateUuid(args.sessionId, 'sessionId');
 
       try {
         return await getMySessionFeedback(ctx.prisma, caller.activeStudentId, args.sessionId);
