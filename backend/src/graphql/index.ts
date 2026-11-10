@@ -51,13 +51,7 @@ const baseResolvers = {
 };
 
 export const schema = makeExecutableSchema<GraphQLContext>({
-  typeDefs: [
-    baseTypeDefs,
-    userTypeDefs,
-    sessionTypeDefs,
-    announcementTypeDefs,
-    feedbackTypeDefs,
-  ],
+  typeDefs: [baseTypeDefs, userTypeDefs, sessionTypeDefs, announcementTypeDefs, feedbackTypeDefs],
   resolvers: [
     baseResolvers,
     userResolvers,
