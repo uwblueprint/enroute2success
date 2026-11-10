@@ -37,7 +37,7 @@ export const feedbackTypeDefs = `#graphql
   }
 
   extend type Mutation {
-    "Update existing feedback. Staff only."
-    updateFeedback(id: ID!, input: UpdateFeedbackInput!): Feedback!
+    "Create existing feedback. Staff only."
+    createFeedback(input: CreateFeedbackInput!): Feedback!
   }
 `;
