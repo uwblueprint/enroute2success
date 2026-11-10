@@ -9,7 +9,7 @@ import {
   listStudentFeedback,
   SessionNotFoundError,
 } from '../../services/feedbackService';
-import { requireRole } from '../../utils/auth';
+import { requireRole, staffRoles } from '../../utils/auth';
 
 type SessionFeedbackArgs = {
   sessionId: string;
@@ -18,8 +18,6 @@ type SessionFeedbackArgs = {
 type StudentSessionFeedbackArgs = SessionFeedbackArgs & {
   studentId: number;
 };
-
-const staffRoles = [Role.ADMIN, Role.COACH, Role.VOLUNTEER] as const;
 
 function validateUuid(value: string, field: string): void {
   const uuid = value.startsWith('{') && value.endsWith('}') ? value.slice(1, -1) : value;
