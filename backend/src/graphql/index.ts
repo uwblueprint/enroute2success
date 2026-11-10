@@ -6,7 +6,7 @@ import { feedbackResolvers } from './resolvers/feedbackResolvers';
 import { sessionResolvers } from './resolvers/sessionResolvers';
 import { userResolvers } from './resolvers/userResolvers';
 import { announcementTypeDefs } from './types/announcementTypes';
-import { feedbackCreateMutationTypeDefs, feedbackTypeDefs } from './types/feedbackTypes';
+import { feedbackTypeDefs } from './types/feedbackTypes';
 import { sessionTypeDefs } from './types/sessionTypes';
 import { userTypeDefs } from './types/userTypes';
 
