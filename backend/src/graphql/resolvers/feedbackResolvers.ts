@@ -122,8 +122,6 @@ export const feedbackResolvers = {
         });
       }
 
-      validateUuid(sessionId, 'sessionId');
-
       try {
         return await createFeedback(
           ctx.prisma,
