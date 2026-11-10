@@ -2,9 +2,9 @@ export const feedbackTypeDefs = `#graphql
   type Feedback {
     id: ID!
     studentId: Int!
-    giverId: ID!
-    updatedById: ID!
-    sessionId: ID!
+    giverId: UUID!
+    updatedById: UUID!
+    sessionId: UUID!
     text: String!
     "ISO 8601"
     createdAt: String!
@@ -14,7 +14,7 @@ export const feedbackTypeDefs = `#graphql
 
   input CreateFeedbackInput {
     studentId: Int!
-    sessionId: ID!
+    sessionId: UUID!
     text: String!
   }
 
@@ -24,16 +24,16 @@ export const feedbackTypeDefs = `#graphql
 
   extend type Query {
     "All feedback for a session. Staff only."
-    sessionFeedback(sessionId: ID!): [Feedback!]!
+    sessionFeedback(sessionId: UUID!): [Feedback!]!
 
     "Feedback for one student in a session, or null if none exists. Staff only."
-    studentSessionFeedback(studentId: Int!, sessionId: ID!): Feedback
+    studentSessionFeedback(studentId: Int!, sessionId: UUID!): Feedback
 
     "All feedback for the active student. Students and parents only."
     myFeedback: [Feedback!]!
 
     "Feedback for the active student in a session, or null if none exists. Students and parents only."
-    mySessionFeedback(sessionId: ID!): Feedback
+    mySessionFeedback(sessionId: UUID!): Feedback
   }
 
   extend type Mutation {
