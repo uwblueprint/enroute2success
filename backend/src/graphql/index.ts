@@ -7,6 +7,7 @@ import { sessionResolvers } from './resolvers/sessionResolvers';
 import { userResolvers } from './resolvers/userResolvers';
 import { announcementTypeDefs } from './types/announcementTypes';
 import { feedbackTypeDefs } from './types/feedbackTypes';
+import { fileTypeDefs } from './types/fileTypes';
 import { sessionTypeDefs } from './types/sessionTypes';
 import { userTypeDefs } from './types/userTypes';
 
