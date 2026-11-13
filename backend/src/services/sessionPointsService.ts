@@ -31,6 +31,26 @@ export type CreateSessionPointsInput = SessionPointsCategories & {
   givenBy: string;
 };
 
+export type UpdateSessionPointsInput = SessionPointsCategories & {
+  id: string;
+  updatedBy: string;
+};
+
+function toSessionPointScores(categories: SessionPointsCategories): SessionPointScores {
+  return {
+    attendance: categories.attendance,
+    punctuality: categories.punctuality,
+    teamwork: categories.teamwork,
+    focus: categories.focus,
+    discipline: categories.discipline,
+    respect: categories.respect,
+    sportsmanship: categories.sportsmanship,
+    extra_recognition: categories.extraRecognition,
+    attended_workshop: categories.attendedWorkshop,
+    won_tournament: categories.wonTournament,
+  };
+}
+
 export function sumSessionPoints(scores: SessionPointScores): number {
   return (
     scores.attendance +
@@ -60,6 +80,13 @@ export class StudentNotFoundError extends Error {
   }
 }
 
+export class SessionPointsNotFoundError extends Error {
+  constructor() {
+    super('Session points not found');
+    this.name = 'SessionPointsNotFoundError';
+  }
+}
+
 export class SessionPointsAlreadyExistsError extends Error {
   constructor() {
     super(
@@ -75,6 +102,12 @@ export class SessionPointsEditWindowError extends Error {
       'Session points can only be created or edited from the session date through the seventh calendar day afterward'
     );
     this.name = 'SessionPointsEditWindowError';
+  }
+}
+
+function assertSessionPointsEditWindow(role: Role, sessionStart: Date): void {
+  if (role !== Role.ADMIN && !isWithinSessionEditWindow(sessionStart)) {
+    throw new SessionPointsEditWindowError();
   }
 }
 
@@ -151,9 +184,7 @@ export async function createSessionPoints(
     throw new StudentNotFoundError();
   }
 
-  if (role !== Role.ADMIN && !isWithinSessionEditWindow(session.start_datetime)) {
-    throw new SessionPointsEditWindowError();
-  }
+  assertSessionPointsEditWindow(role, session.start_datetime);
 
   // TODO: Validate student enrollment once the attendance table exists.
 
@@ -165,16 +196,7 @@ export async function createSessionPoints(
           session_id: sessionId,
           given_by: givenBy,
           updated_by: givenBy,
-          attendance: input.attendance,
-          punctuality: input.punctuality,
-          teamwork: input.teamwork,
-          focus: input.focus,
-          discipline: input.discipline,
-          respect: input.respect,
-          sportsmanship: input.sportsmanship,
-          extra_recognition: input.extraRecognition,
-          attended_workshop: input.attendedWorkshop,
-          won_tournament: input.wonTournament,
+          ...toSessionPointScores(input),
         },
       });
 
@@ -200,4 +222,49 @@ export async function createSessionPoints(
 
     throw error;
   }
+}
+
+export async function updateSessionPoints(
+  prisma: PrismaClient,
+  input: UpdateSessionPointsInput,
+  role: Role
+): Promise<SessionPoints> {
+  const { id, updatedBy } = input;
+  const scores = toSessionPointScores(input);
+
+  return prisma.$transaction(
+    async (tx) => {
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "session_points"
+        WHERE "id" = ${id}::uuid
+        FOR UPDATE
+      `;
+
+      if (locked.length === 0) {
+        throw new SessionPointsNotFoundError();
+      }
+
+      // Read the scores after any earlier edit has committed and released the lock.
+      const current = await tx.sessionPoints.findUniqueOrThrow({
+        where: { id },
+        include: { session: { select: { start_datetime: true } } },
+      });
+
+      assertSessionPointsEditWindow(role, current.session.start_datetime);
+
+      const delta = sumSessionPoints(scores) - sumSessionPoints(current);
+      const updated = await tx.sessionPoints.update({
+        where: { id },
+        data: { ...scores, updated_by: updatedBy },
+      });
+
+      await tx.student.update({
+        where: { membership_id: current.membership_id },
+        data: { points: { increment: delta } },
+      });
+
+      return updated;
+    },
+    { isolationLevel: 'ReadCommitted' }
+  );
 }
