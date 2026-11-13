@@ -10,8 +10,10 @@ import {
   SessionNotFoundError,
   SessionPointsAlreadyExistsError,
   SessionPointsEditWindowError,
+  SessionPointsNotFoundError,
   StudentNotFoundError,
   sumSessionPoints,
+  updateSessionPoints,
 } from '../../services/sessionPointsService';
 import type { SessionPointsCategories } from '../../services/sessionPointsService';
 import { requireRole, staffRoles } from '../../utils/auth';
@@ -31,6 +33,11 @@ type CreateSessionPointsArgs = {
   };
 };
 
+type UpdateSessionPointsArgs = {
+  id: string;
+  input: { categories: SessionPointsCategories };
+};
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function validateSessionId(sessionId: string): void {
@@ -38,6 +45,16 @@ function validateSessionId(sessionId: string): void {
     throw new GraphQLError('sessionId must be a valid UUID', {
       extensions: { code: 'BAD_USER_INPUT', field: 'sessionId' },
     });
+  }
+}
+
+function validateCategories(categories: SessionPointsCategories): void {
+  for (const [field, score] of Object.entries(categories)) {
+    if (!Number.isInteger(score) || score < 0 || score > 10) {
+      throw new GraphQLError(`${field} must be an integer from 0 to 10`, {
+        extensions: { code: 'BAD_USER_INPUT', field },
+      });
+    }
   }
 }
 
@@ -128,15 +145,7 @@ export const sessionPointsResolvers = {
     ): Promise<SessionPoints> => {
       const caller = requireRole(ctx.auth, staffRoles);
       const { studentId, sessionId, categories } = args.input;
-      validateSessionId(sessionId);
-
-      for (const [field, score] of Object.entries(categories)) {
-        if (!Number.isInteger(score) || score < 0 || score > 10) {
-          throw new GraphQLError(`${field} must be an integer from 0 to 10`, {
-            extensions: { code: 'BAD_USER_INPUT', field },
-          });
-        }
-      }
+      validateCategories(categories);
 
       try {
         return await createSessionPoints(
@@ -160,6 +169,41 @@ export const sessionPointsResolvers = {
         if (error instanceof SessionPointsAlreadyExistsError) {
           throw new GraphQLError(error.message, {
             extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+
+        if (error instanceof SessionPointsEditWindowError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'FORBIDDEN' },
+          });
+        }
+
+        throw error;
+      }
+    },
+
+    updateSessionPoints: async (
+      _parent: unknown,
+      args: UpdateSessionPointsArgs,
+      ctx: GraphQLContext
+    ): Promise<SessionPoints> => {
+      const caller = requireRole(ctx.auth, staffRoles);
+      const {
+        id,
+        input: { categories },
+      } = args;
+      validateCategories(categories);
+
+      try {
+        return await updateSessionPoints(
+          ctx.prisma,
+          { ...categories, id, updatedBy: caller.userId },
+          caller.role
+        );
+      } catch (error) {
+        if (error instanceof SessionPointsNotFoundError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'NOT_FOUND', id },
           });
         }
 
