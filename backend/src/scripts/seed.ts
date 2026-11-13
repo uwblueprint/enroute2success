@@ -117,41 +117,14 @@ const students = [
   { membershipId: 900002, firstName: 'Dev Sibling Two', managerId: MULTI_PARENT_ID },
   { membershipId: 900003, firstName: 'Dev Only Child', managerId: SINGLE_PARENT_ID },
   { membershipId: 900004, firstName: 'Dev Self Managed', managerId: SELF_MANAGED_ID },
-  { membershipId: 900005, firstName: 'Dev New Setup', managerId: null },
-  { membershipId: 900006, firstName: 'Dev Link Student', managerId: null },
-  { membershipId: 900007, firstName: 'Dev Existing Setup', managerId: null },
-  { membershipId: 900008, firstName: 'Dev Email Request', managerId: null },
 ];
 
+// Email-only signup links. Opening a valid one lands on the finish-setup page, where the
+// student's details are collected and a membership ID is generated.
 const setupCases = [
-  {
-    label: 'New User setup',
-    email: 'setup.new@e2s.test',
-    membershipId: 900005,
-    userId: null,
-    state: 'valid',
-  },
-  {
-    label: 'Existing parent setup',
-    email: 'parent.multi@e2s.test',
-    membershipId: 900007,
-    userId: MULTI_PARENT_ID,
-    state: 'valid',
-  },
-  {
-    label: 'Expired setup token',
-    email: 'setup.expired@e2s.test',
-    membershipId: 900008,
-    userId: null,
-    state: 'expired',
-  },
-  {
-    label: 'Already-used setup token',
-    email: 'setup.used@e2s.test',
-    membershipId: 900008,
-    userId: null,
-    state: 'used',
-  },
+  { label: 'New signup', email: 'setup.new@e2s.test', state: 'valid' },
+  { label: 'Expired setup token', email: 'setup.expired@e2s.test', state: 'expired' },
+  { label: 'Already-used setup token', email: 'setup.used@e2s.test', state: 'used' },
 ];
 
 const DEV_DATABASE_HOSTS = ['postgres', 'localhost', '127.0.0.1'];
@@ -200,7 +173,6 @@ async function seedAuthFixtures(resetAuth: boolean): Promise<void> {
       const setupLinks: {
         label: string;
         email: string;
-        membershipId: number;
         token: string;
         url: string;
       }[] = [];
@@ -296,61 +268,39 @@ async function seedAuthFixtures(resetAuth: boolean): Promise<void> {
       }
 
       if (resetAuth) {
-        const membershipIds = students.map((student) => student.membershipId);
         await tx.accountSetupToken.deleteMany({
-          where: { membership_id: { in: membershipIds } },
+          where: { email: { in: setupCases.map((setup) => setup.email) } },
         });
 
-        for (const setup of setupCases.filter(
-          (candidate) => candidate.state === 'valid' && candidate.userId === null
-        )) {
+        // Remove accounts created by completing a fixture signup, so it can be repeated.
+        for (const setup of setupCases.filter((candidate) => candidate.state === 'valid')) {
           const owner = await tx.user.findUnique({
             where: { email: setup.email },
-            include: {
-              staff: true,
-              students: { select: { membership_id: true } },
-              announcements: { select: { id: true }, take: 1 },
-              accountSetupTokens: { select: { membership_id: true } },
-            },
+            include: { staff: true, announcements: { select: { id: true }, take: 1 } },
           });
 
           if (!owner) {
             continue;
           }
 
-          if (
-            owner.staff !== null ||
-            owner.students.some((student) => !membershipIds.includes(student.membership_id)) ||
-            owner.announcements.length > 0 ||
-            owner.accountSetupTokens.some((token) => !membershipIds.includes(token.membership_id))
-          ) {
+          if (owner.staff !== null || owner.announcements.length > 0) {
             throw new SeedError(
-              'The new-User setup fixture has unrelated data or a staff role; auth reset was rolled back.'
+              'The new-signup fixture has unrelated data or a staff role; auth reset was rolled back.'
             );
           }
 
           await tx.refresh_tokens.deleteMany({ where: { user_id: owner.id } });
+          await tx.student.deleteMany({ where: { manager_id: owner.id } });
           await tx.user.delete({ where: { id: owner.id } });
           removedSetupUsers += 1;
         }
       }
 
       for (const setup of setupCases) {
-        const student = await tx.student.findUnique({
-          where: { membership_id: setup.membershipId },
-        });
-
-        if (!student || student.manager_id !== null) {
-          skippedSetups.push(
-            `${setup.label}: membership ${setup.membershipId} is already claimed.`
-          );
-          continue;
-        }
-
         const owner = await tx.user.findUnique({ where: { email: setup.email } });
 
-        if ((owner?.id ?? null) !== setup.userId) {
-          skippedSetups.push(`${setup.label}: the setup email no longer matches the fixture case.`);
+        if (owner) {
+          skippedSetups.push(`${setup.label}: ${setup.email} already has an account.`);
           continue;
         }
 
@@ -360,8 +310,6 @@ async function seedAuthFixtures(resetAuth: boolean): Promise<void> {
         await tx.accountSetupToken.create({
           data: {
             email: setup.email,
-            membership_id: setup.membershipId,
-            user_id: setup.userId,
             token_hash: hashAccountSetupToken(rawToken),
             expires_at:
               setup.state === 'expired'
@@ -370,13 +318,7 @@ async function seedAuthFixtures(resetAuth: boolean): Promise<void> {
             used_at: setup.state === 'used' ? new Date() : null,
           },
         });
-        setupLinks.push({
-          label: setup.label,
-          email: setup.email,
-          membershipId: setup.membershipId,
-          token: rawToken,
-          url,
-        });
+        setupLinks.push({ label: setup.label, email: setup.email, token: rawToken, url });
       }
 
       return {
@@ -422,7 +364,7 @@ async function seedAuthFixtures(resetAuth: boolean): Promise<void> {
   );
 
   for (const setup of seeded.setupLinks) {
-    console.log(`\n${setup.label} (${setup.email}, membership ${setup.membershipId})`);
+    console.log(`\n${setup.label} (${setup.email})`);
     console.log(`  Token: ${setup.token}`);
     console.log(`  URL: ${setup.url}`);
   }

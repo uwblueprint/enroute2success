@@ -49,25 +49,23 @@ export type CreateStaffAccountInput = {
   role: Role;
 };
 
+export type StudentInput = {
+  firstName: string;
+  lastName: string;
+  preferredName?: string | null;
+  birthDate: string; // YYYY-MM-DD
+  allergies?: string[] | null;
+  notes?: string | null;
+};
+
 export type CompleteAccountSetupInput = {
   token: string;
   newPassword: string;
-  firstName?: string | null;
-  lastName?: string | null;
-  phoneNumber?: string | null;
+  firstName: string;
+  lastName: string;
+  phoneNumber: string;
+  student: StudentInput;
 };
-
-type AccountSetupField = 'email' | 'newPassword' | 'firstName' | 'lastName' | 'phoneNumber';
-
-export class InvalidAccountSetupInputError extends Error {
-  constructor(
-    public readonly field: AccountSetupField,
-    message: string
-  ) {
-    super(message);
-    this.name = 'InvalidAccountSetupInputError';
-  }
-}
 
 export class InvalidAccountSetupTokenError extends Error {
   constructor() {
@@ -94,20 +92,6 @@ export class InvalidLoginInputError extends Error {
   constructor() {
     super('Provide exactly one of email or membershipId');
     this.name = 'InvalidLoginInputError';
-  }
-}
-
-export class StudentNotFoundError extends Error {
-  constructor() {
-    super('Student not found');
-    this.name = 'StudentNotFoundError';
-  }
-}
-
-export class StudentAlreadyClaimedError extends Error {
-  constructor() {
-    super('Student is already linked to an account');
-    this.name = 'StudentAlreadyClaimedError';
   }
 }
 
@@ -314,110 +298,40 @@ export async function selectActiveStudent(
   return createAuthPayload(user, user.students, membershipId);
 }
 
-export async function linkManagedStudent(
-  prisma: PrismaClient,
-  userId: string,
-  membershipId: number
-): Promise<AuthPayload | null> {
-  return prisma.$transaction(
-    async (tx) => {
-      await tx.$queryRaw`
-        SELECT "id" FROM "users"
-        WHERE "id" = ${userId}::uuid
-        FOR UPDATE
-      `;
-
-      const user = await tx.user.findUnique({
-        where: { id: userId },
-        include: { staff: true },
-      });
-
-      if (!user || !matchesLoginPortal(user, 'student')) {
-        return null;
-      }
-
-      const claimed = await tx.student.updateMany({
-        where: { membership_id: membershipId, manager_id: null },
-        data: { manager_id: userId },
-      });
-
-      if (claimed.count !== 1) {
-        const student = await tx.student.findUnique({
-          where: { membership_id: membershipId },
-          select: { membership_id: true },
-        });
-
-        if (!student) {
-          throw new StudentNotFoundError();
-        }
-
-        throw new StudentAlreadyClaimedError();
-      }
-
-      const students = await tx.student.findMany({
-        where: { manager_id: userId },
-        orderBy: { membership_id: 'asc' },
-      });
-      const payload = createAuthPayload(user, students, membershipId);
-
-      if (!payload) {
-        throw new Error('Unable to load the linked student');
-      }
-
-      return payload;
-    },
-    { isolationLevel: 'ReadCommitted' }
-  );
+// Input validation and trimming are the client's job; this only maps fields to DB columns.
+function toStudentCreateData(input: StudentInput): Prisma.StudentUncheckedCreateInput {
+  return {
+    first_name: input.firstName,
+    last_name: input.lastName,
+    preferred_name: input.preferredName ?? null,
+    birth_date: new Date(`${input.birthDate}T00:00:00.000Z`),
+    allergies: input.allergies ?? [],
+    notes: input.notes ?? null,
+  };
 }
 
-export async function requestAccountSetup(
-  prisma: PrismaClient,
-  email: string,
-  membershipId: number
-): Promise<boolean> {
-  const setupEmail = email.trim();
+export async function requestAccountSetup(prisma: PrismaClient, email: string): Promise<boolean> {
+  const setupEmail = email;
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(setupEmail)) {
-    throw new InvalidAccountSetupInputError('email', 'Provide a valid email address');
-  }
-
-  const student = await prisma.student.findUnique({
-    where: { membership_id: membershipId },
-  });
-
-  if (!student || student.manager_id !== null) {
-    return true;
-  }
-
-  const user = await prisma.user.findUnique({
+  const existing = await prisma.user.findUnique({
     where: { email: setupEmail },
-    include: { staff: true },
+    select: { id: true },
   });
 
-  if (user && !matchesLoginPortal(user, 'student')) {
-    return true;
+  if (existing) {
+    throw new EmailInUseError();
   }
 
   const rawToken = generateAccountSetupToken();
   const setupUrl = getAccountSetupUrl(rawToken);
 
-  try {
-    await prisma.accountSetupToken.create({
-      data: {
-        email: setupEmail,
-        membership_id: membershipId,
-        user_id: user?.id ?? null,
-        token_hash: hashAccountSetupToken(rawToken),
-        expires_at: getAccountSetupTokenExpiry(),
-      },
-    });
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
-      return true;
-    }
-
-    throw error;
-  }
+  await prisma.accountSetupToken.create({
+    data: {
+      email: setupEmail,
+      token_hash: hashAccountSetupToken(rawToken),
+      expires_at: getAccountSetupTokenExpiry(),
+    },
+  });
 
   try {
     await sendSetPasswordEmail(setupEmail, setupUrl);
@@ -426,19 +340,6 @@ export async function requestAccountSetup(
   }
 
   return true;
-}
-
-function requireAccountSetupField(
-  value: string | null | undefined,
-  field: AccountSetupField
-): string {
-  const trimmed = value?.trim();
-
-  if (!trimmed) {
-    throw new InvalidAccountSetupInputError(field, `${field} is required for a new account`);
-  }
-
-  return trimmed;
 }
 
 export async function completeAccountSetup(
@@ -458,77 +359,14 @@ export async function completeAccountSetup(
     throw new InvalidAccountSetupTokenError();
   }
 
-  if (input.newPassword.trim().length === 0) {
-    throw new InvalidAccountSetupInputError('newPassword', 'A password is required');
-  }
-
+  const studentData = toStudentCreateData(input.student);
   const passwordHash = await hashPassword(input.newPassword);
 
   return prisma.$transaction(
     async (tx) => {
-      const setup = await tx.accountSetupToken.findUnique({
-        where: { token_hash: tokenHash },
-      });
-
-      if (!setup || setup.used_at !== null || setup.expires_at.getTime() <= Date.now()) {
-        throw new InvalidAccountSetupTokenError();
-      }
-
-      const existingUser = await tx.user.findUnique({
-        where: { email: setup.email },
-        include: { staff: true },
-      });
-
-      if (
-        (setup.user_id !== null && setup.user_id !== existingUser?.id) ||
-        (existingUser && !matchesLoginPortal(existingUser, 'student'))
-      ) {
-        throw new InvalidAccountSetupTokenError();
-      }
-
-      const firstName = existingUser
-        ? existingUser.first_name
-        : requireAccountSetupField(input.firstName, 'firstName');
-      const lastName = existingUser
-        ? existingUser.last_name
-        : requireAccountSetupField(input.lastName, 'lastName');
-      const phoneNumber = existingUser
-        ? existingUser.phone_number
-        : requireAccountSetupField(input.phoneNumber, 'phoneNumber');
-
-      // Keep relations out of this query so Prisma uses an atomic database upsert.
-      // Acquire the account's write lock before consuming the token in every path.
-      const account = await tx.user.upsert({
-        where: { email: setup.email },
-        create: {
-          id: randomUUID(),
-          email: setup.email,
-          first_name: firstName,
-          last_name: lastName,
-          phone_number: phoneNumber,
-          password_hash: passwordHash,
-        },
-        update: { password_hash: passwordHash },
-        select: { id: true },
-      });
-
-      const user = await tx.user.findUnique({
-        where: { id: account.id },
-        include: { staff: true },
-      });
-
-      // Another request may have created the email after the initial lookup.
-      if (
-        !user ||
-        (setup.user_id !== null && setup.user_id !== user.id) ||
-        user.email !== setup.email ||
-        !matchesLoginPortal(user, 'student')
-      ) {
-        throw new InvalidAccountSetupTokenError();
-      }
-
+      // Consume the token first so concurrent requests can't both succeed.
       const consumed = await tx.accountSetupToken.updateMany({
-        where: { id: setup.id, used_at: null, expires_at: { gt: new Date() } },
+        where: { token_hash: tokenHash, used_at: null, expires_at: { gt: new Date() } },
         data: { used_at: new Date() },
       });
 
@@ -536,25 +374,35 @@ export async function completeAccountSetup(
         throw new InvalidAccountSetupTokenError();
       }
 
-      const claimed = await tx.student.updateMany({
-        where: { membership_id: setup.membership_id, manager_id: null },
-        data: { manager_id: user.id },
-      });
+      let user: UserWithStaff;
 
-      if (claimed.count !== 1) {
-        throw new InvalidAccountSetupTokenError();
+      try {
+        user = await tx.user.create({
+          data: {
+            id: randomUUID(),
+            email: pending.email,
+            first_name: input.firstName,
+            last_name: input.lastName,
+            phone_number: input.phoneNumber,
+            password_hash: passwordHash,
+          },
+          include: { staff: true },
+        });
+      } catch (error) {
+        // Throwing rolls back the token consumption above.
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          throw new EmailInUseError();
+        }
+
+        throw error;
       }
 
-      await tx.refresh_tokens.updateMany({
-        where: { user_id: user.id, revoked_at: null },
-        data: { revoked_at: new Date() },
+      // membership_id is generated by the database sequence.
+      const student = await tx.student.create({
+        data: { ...studentData, manager_id: user.id },
       });
 
-      const students = await tx.student.findMany({
-        where: { manager_id: user.id },
-        orderBy: { membership_id: 'asc' },
-      });
-      const session = createSession(user, students, setup.membership_id);
+      const session = createSession(user, [student], student.membership_id);
 
       if (!session) {
         throw new InvalidAccountSetupTokenError();
@@ -570,6 +418,38 @@ export async function completeAccountSetup(
       });
 
       return session;
+    },
+    { isolationLevel: 'ReadCommitted' }
+  );
+}
+
+export async function createManagedStudent(
+  prisma: PrismaClient,
+  userId: string,
+  input: StudentInput
+): Promise<AuthPayload | null> {
+  const studentData = toStudentCreateData(input);
+
+  return prisma.$transaction(
+    async (tx) => {
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        include: { staff: true },
+      });
+
+      if (!user || !matchesLoginPortal(user, 'student')) {
+        return null;
+      }
+
+      const student = await tx.student.create({
+        data: { ...studentData, manager_id: user.id },
+      });
+      const students = await tx.student.findMany({
+        where: { manager_id: user.id },
+        orderBy: { membership_id: 'asc' },
+      });
+
+      return createAuthPayload(user, students, student.membership_id);
     },
     { isolationLevel: 'ReadCommitted' }
   );

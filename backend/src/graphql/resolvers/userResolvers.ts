@@ -4,15 +4,14 @@ import type { Student } from '../../../generated/client';
 import type { GraphQLContext } from '../context';
 import {
   completeAccountSetup,
+  createManagedStudent,
   createStaffAccount,
   EmailInUseError,
-  InvalidAccountSetupInputError,
   InvalidAccountSetupTokenError,
   InvalidLoginInputError,
   getManagedStudents,
   getStudents,
   getUserWithStaff,
-  linkManagedStudent,
   loginStaff,
   loginStudent,
   requestAccountSetup,
@@ -20,13 +19,12 @@ import {
   rotateRefreshToken,
   selectActiveStudent,
   setUserPassword,
-  StudentAlreadyClaimedError,
-  StudentNotFoundError,
 } from '../../services/userService';
 import type {
   CompleteAccountSetupInput,
   CreateStaffAccountInput,
   LoginInput,
+  StudentInput,
   UserWithStaff,
 } from '../../services/userService';
 import { requireRole } from '../../utils/auth';
@@ -184,51 +182,31 @@ export const userResolvers = {
       return payload;
     },
 
-    linkManagedStudent: async (
+    createManagedStudent: async (
       _parent: unknown,
-      args: { membershipId: number },
+      args: { student: StudentInput },
       ctx: GraphQLContext
     ) => {
       const caller = requireRole(ctx.auth, [PrismaRole.STUDENT]);
 
-      try {
-        const payload = await linkManagedStudent(ctx.prisma, caller.userId, args.membershipId);
+      const payload = await createManagedStudent(ctx.prisma, caller.userId, args.student);
 
-        if (!payload) {
-          throw new GraphQLError('Unable to link a student for this account', {
-            extensions: { code: 'FORBIDDEN' },
-          });
-        }
-
-        return payload;
-      } catch (error) {
-        if (error instanceof StudentNotFoundError) {
-          throw new GraphQLError(error.message, {
-            extensions: { code: 'NOT_FOUND', field: 'membershipId' },
-          });
-        }
-
-        if (error instanceof StudentAlreadyClaimedError) {
-          throw new GraphQLError(error.message, {
-            extensions: { code: 'CONFLICT', field: 'membershipId' },
-          });
-        }
-
-        throw error;
+      if (!payload) {
+        throw new GraphQLError('Unable to add a student for this account', {
+          extensions: { code: 'FORBIDDEN' },
+        });
       }
+
+      return payload;
     },
 
-    requestAccountSetup: async (
-      _parent: unknown,
-      args: { email: string; membershipId: number },
-      ctx: GraphQLContext
-    ) => {
+    requestAccountSetup: async (_parent: unknown, args: { email: string }, ctx: GraphQLContext) => {
       try {
-        return await requestAccountSetup(ctx.prisma, args.email, args.membershipId);
+        return await requestAccountSetup(ctx.prisma, args.email);
       } catch (error) {
-        if (error instanceof InvalidAccountSetupInputError) {
-          throw new GraphQLError(error.message, {
-            extensions: { code: 'BAD_USER_INPUT', field: error.field },
+        if (error instanceof EmailInUseError) {
+          throw new GraphQLError('An account with this email already exists', {
+            extensions: { code: 'BAD_USER_INPUT', field: 'email' },
           });
         }
 
@@ -252,15 +230,15 @@ export const userResolvers = {
           activeStudent: session.activeStudent,
         };
       } catch (error) {
-        if (error instanceof InvalidAccountSetupInputError) {
-          throw new GraphQLError(error.message, {
-            extensions: { code: 'BAD_USER_INPUT', field: error.field },
-          });
-        }
-
         if (error instanceof InvalidAccountSetupTokenError) {
           throw new GraphQLError(error.message, {
             extensions: { code: 'BAD_USER_INPUT', field: 'token' },
+          });
+        }
+
+        if (error instanceof EmailInUseError) {
+          throw new GraphQLError('An account with this email already exists', {
+            extensions: { code: 'BAD_USER_INPUT', field: 'email' },
           });
         }
 
