@@ -10,8 +10,10 @@ import {
   SessionNotFoundError,
   SessionPointsAlreadyExistsError,
   SessionPointsEditWindowError,
+  SessionPointsNotFoundError,
   StudentNotFoundError,
   sumSessionPoints,
+  updateSessionPoints,
 } from '../../services/sessionPointsService';
 import type { SessionPointsCategories } from '../../services/sessionPointsService';
 import { requireRole, staffRoles } from '../../utils/auth';
@@ -30,6 +32,21 @@ type CreateSessionPointsArgs = {
     categories: SessionPointsCategories;
   };
 };
+
+type UpdateSessionPointsArgs = {
+  id: string;
+  input: { categories: SessionPointsCategories };
+};
+
+function validateCategories(categories: SessionPointsCategories): void {
+  for (const [field, score] of Object.entries(categories)) {
+    if (!Number.isInteger(score) || score < 0 || score > 1) {
+      throw new GraphQLError(`${field} must be an integer from 0 to 1`, {
+        extensions: { code: 'BAD_USER_INPUT', field },
+      });
+    }
+  }
+}
 
 export const sessionPointsResolvers = {
   Query: {
@@ -141,6 +158,7 @@ export const sessionPointsResolvers = {
           });
         }
       }
+      validateCategories(categories);
 
       try {
         return await createSessionPoints(
@@ -164,6 +182,41 @@ export const sessionPointsResolvers = {
         if (error instanceof SessionPointsAlreadyExistsError) {
           throw new GraphQLError(error.message, {
             extensions: { code: 'BAD_USER_INPUT' },
+          });
+        }
+
+        if (error instanceof SessionPointsEditWindowError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'FORBIDDEN' },
+          });
+        }
+
+        throw error;
+      }
+    },
+
+    updateSessionPoints: async (
+      _parent: unknown,
+      args: UpdateSessionPointsArgs,
+      ctx: GraphQLContext
+    ): Promise<SessionPoints> => {
+      const caller = requireRole(ctx.auth, staffRoles);
+      const {
+        id,
+        input: { categories },
+      } = args;
+      validateCategories(categories);
+
+      try {
+        return await updateSessionPoints(
+          ctx.prisma,
+          { ...categories, id, updatedBy: caller.userId },
+          caller.role
+        );
+      } catch (error) {
+        if (error instanceof SessionPointsNotFoundError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'NOT_FOUND', id },
           });
         }
 
