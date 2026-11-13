@@ -1,5 +1,5 @@
 /**
- * Dev-only seed for authentication, sessions, announcements, and feedback.
+ * Dev-only seed for authentication, sessions, announcements, feedback, and points.
  *
  * ⚠️  NOT FOR PRODUCTION. It requires NODE_ENV=development and a DATABASE_URL
  * pointing at the local e2s_db database.
@@ -16,7 +16,7 @@
  *
  * Feedback students: creates two fixtures managed by the nonstaff account. Refuses
  * conflicting membership IDs and preserves existing matching students.
- * A full seed replaces feedback, sessions, series, and announcements in one transaction.
+ * A full seed replaces feedback, session points, sessions, series, and announcements in one transaction.
  * Fixture coverage (maps to the testing checklist):
  *  - Sessions with AND without `max_attendees`.
  *  - One `draft` and one `cancelled` session.
@@ -34,6 +34,7 @@
 import 'dotenv/config';
 import { Role } from '../../generated/client';
 import type { Prisma, session_status, session_type } from '../../generated/client';
+import { sumSessionPoints } from '../services/sessionPointsService';
 import {
   ORG_TIMEZONE,
   zonedWallTimeToUtc,
@@ -61,6 +62,14 @@ const SELF_MANAGED_ID = '00000000-0000-4000-8000-000000000007';
 const STUDENT_FIXTURE_NOTE = 'Synthetic development auth fixture; not a real participant.';
 const STUDENT_BIRTH_DATE = new Date('2015-06-07T00:00:00.000Z');
 const FEEDBACK_TIMEZONE = 'America/Toronto';
+const FEEDBACK_SESSION_IDS = {
+  today: '10000000-0000-4000-8000-000000000001',
+  day7: '10000000-0000-4000-8000-000000000002',
+  day8: '10000000-0000-4000-8000-000000000003',
+  future: '10000000-0000-4000-8000-000000000004',
+  empty: '10000000-0000-4000-8000-000000000005',
+};
+const POINTS_STUDENT_ID = 900001;
 
 const feedbackStudents = [
   { membership_id: 990001, first_name: 'Dev', last_name: 'Feedback A' },
@@ -287,7 +296,6 @@ async function seedAuthFixtures(resetAuth: boolean): Promise<void> {
             last_name: 'Fixture',
             preferred_name: student.membershipId === 900002 ? 'Dev Two' : null,
             birth_date: STUDENT_BIRTH_DATE,
-            points: student.membershipId === 900001 ? 25 : 0,
             allergies: [],
             notes: STUDENT_FIXTURE_NOTE,
           },
@@ -734,13 +742,7 @@ async function seedAnnouncements(tx: Prisma.TransactionClient): Promise<void> {
 }
 
 async function seedFeedback(tx: Prisma.TransactionClient): Promise<void> {
-  const sessionIds = {
-    today: '10000000-0000-4000-8000-000000000001',
-    day7: '10000000-0000-4000-8000-000000000002',
-    day8: '10000000-0000-4000-8000-000000000003',
-    future: '10000000-0000-4000-8000-000000000004',
-    empty: '10000000-0000-4000-8000-000000000005',
-  };
+  const sessionIds = FEEDBACK_SESSION_IDS;
   const now = new Date();
   const [year, month, day] = currentLocalDate(FEEDBACK_TIMEZONE, now).split('-').map(Number);
   const sessionFixtures = [
@@ -814,6 +816,65 @@ async function seedFeedback(tx: Prisma.TransactionClient): Promise<void> {
   });
 }
 
+async function clearSessionPoints(tx: Prisma.TransactionClient): Promise<void> {
+  // Block points mutations while accounting for the rows this transaction removes.
+  await tx.$executeRaw`LOCK TABLE "session_points" IN EXCLUSIVE MODE`;
+
+  const contributions = new Map<number, number>();
+  for (const row of await tx.sessionPoints.findMany()) {
+    const contribution = (contributions.get(row.membership_id) ?? 0) + sumSessionPoints(row);
+    contributions.set(row.membership_id, contribution);
+  }
+
+  for (const [membershipId, contribution] of contributions) {
+    if (contribution !== 0) {
+      await tx.student.update({
+        where: { membership_id: membershipId },
+        data: { points: { decrement: contribution } },
+      });
+    }
+  }
+
+  await tx.sessionPoints.deleteMany({});
+}
+
+async function seedSessionPoints(tx: Prisma.TransactionClient): Promise<void> {
+  await tx.sessionPoints.createMany({
+    data: [
+      {
+        id: '30000000-0000-4000-8000-000000000001',
+        session_id: FEEDBACK_SESSION_IDS.today,
+        membership_id: POINTS_STUDENT_ID,
+        given_by: COACH_ID,
+        updated_by: COACH_ID,
+        attendance: 5,
+        punctuality: 1,
+        teamwork: 2,
+        focus: 1,
+        discipline: 1,
+        respect: 1,
+        sportsmanship: 1,
+        extra_recognition: 1,
+        attended_workshop: 1,
+        won_tournament: 1,
+      },
+      {
+        id: '30000000-0000-4000-8000-000000000002',
+        session_id: FEEDBACK_SESSION_IDS.day7,
+        membership_id: POINTS_STUDENT_ID,
+        given_by: ADMIN_ID,
+        updated_by: ADMIN_ID,
+        attendance: 10,
+      },
+    ],
+  });
+
+  await tx.student.update({
+    where: { membership_id: POINTS_STUDENT_ID },
+    data: { points: 25 },
+  });
+}
+
 async function main(): Promise<void> {
   requireDevelopmentDatabase();
   const args = process.argv.slice(2);
@@ -826,7 +887,7 @@ async function main(): Promise<void> {
 
   if (args.includes('--auth-only')) {
     console.log(
-      'Auth-only seed complete. Existing feedback, sessions, session series, and announcements were preserved.'
+      'Auth-only seed complete. Existing session points, student totals, feedback, sessions, session series, and announcements were preserved.'
     );
     return;
   }
@@ -834,19 +895,22 @@ async function main(): Promise<void> {
   await prisma.$transaction(
     async (tx) => {
       await seedFeedbackStudents(tx);
-      // Feedback must be removed before sessions because its FK uses Restrict.
+      await clearSessionPoints(tx);
+      // Feedback and points must be removed before sessions because their FKs use Restrict.
       await tx.feedback.deleteMany({});
       await tx.session.deleteMany({});
       await tx.session_series.deleteMany({});
       await seedSessions(tx);
       await seedFeedback(tx);
+      await seedSessionPoints(tx);
       await seedAnnouncements(tx);
     },
-    { timeout: 15_000 }
+    { isolationLevel: 'ReadCommitted', timeout: 15_000 }
   );
   console.log(
     '✅ Feedback fixtures ready: students 990001/990002, 5 sessions, and 5 feedback entries.'
   );
+  console.log('✅ Session points fixtures ready: student 900001, 2 rows, and 25 points.');
 }
 
 main()
