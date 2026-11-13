@@ -22,6 +22,25 @@ export const sessionPointsTypeDefs = `#graphql
     updatedAt: String!
   }
 
+  input SessionPointsCategoriesInput {
+    attendance: Int!
+    punctuality: Int!
+    teamwork: Int!
+    focus: Int!
+    discipline: Int!
+    respect: Int!
+    sportsmanship: Int!
+    extraRecognition: Int!
+    attendedWorkshop: Int!
+    wonTournament: Int!
+  }
+
+  input CreateSessionPointsInput {
+    studentId: Int!
+    sessionId: ID!
+    categories: SessionPointsCategoriesInput!
+  }
+
   extend type Query {
     "All points rows for a session in creation order. Staff only."
     sessionPointsForSession(sessionId: ID!): [SessionPoints!]!
@@ -34,5 +53,10 @@ export const sessionPointsTypeDefs = `#graphql
 
     "Points for the active student in a session, or null if no row exists. Students and parents only."
     mySessionPoints(sessionId: ID!): SessionPoints
+  }
+
+  extend type Mutation {
+    "Record points for a student in a session. Staff only."
+    createSessionPoints(input: CreateSessionPointsInput!): SessionPoints!
   }
 `;
