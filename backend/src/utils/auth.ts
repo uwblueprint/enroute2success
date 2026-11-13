@@ -1,5 +1,7 @@
 import { GraphQLError } from 'graphql';
-import type { Role } from '../../generated/client';
+import { Role } from '../../generated/client';
+
+export const staffRoles = [Role.ADMIN, Role.COACH, Role.VOLUNTEER] as const;
 
 export interface AuthenticatedUser {
   userId: string;
