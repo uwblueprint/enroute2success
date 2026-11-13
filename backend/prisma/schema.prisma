@@ -9,6 +9,11 @@ generator client {
   output   = "../generated"
 }
 
+enum file_status {
+  pending
+  ready
+}
+
 enum session_type {
   golf
   chess
@@ -92,6 +97,7 @@ model User {
   announcements      Announcements[]
   students           Student[]
   accountSetupTokens AccountSetupToken[]
+  files              File[]
 
   @@map("users")
 }
@@ -111,7 +117,8 @@ model Student {
 
   manager            User?               @relation(fields: [manager_id], references: [id], onDelete: SetNull)
   accountSetupTokens AccountSetupToken[]
-  feedback Feedback[]
+  feedback           Feedback[]
+  fileRecipients     FileRecipient[]
 
   @@index([manager_id])
   @@map("students")
@@ -197,4 +204,37 @@ model Announcements {
 
   @@index([end_date])
   @@map("announcements")
+}
+
+model File {
+  id            String      @id @default(uuid()) @db.Uuid
+  original_name String
+  mime_type     String
+  size_bytes    Int
+  storage_key   String      @unique
+  status        file_status @default(pending)
+  uploader_id   String      @db.Uuid
+  created_at    DateTime    @default(now()) @db.Timestamp(6)
+  updated_at    DateTime    @updatedAt @db.Timestamp(6)
+
+  uploader   User            @relation(fields: [uploader_id], references: [id], onDelete: Restrict)
+  recipients FileRecipient[]
+
+  @@index([uploader_id])
+  @@index([status, created_at])
+  @@map("files")
+}
+
+// A file with zero rows here is staff-only.
+model FileRecipient {
+  file_id    String   @db.Uuid
+  student_id Int
+  created_at DateTime @default(now()) @db.Timestamp(6)
+
+  file    File    @relation(fields: [file_id], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [student_id], references: [membership_id], onDelete: Restrict)
+
+  @@id([file_id, student_id])
+  @@index([student_id])
+  @@map("file_recipients")
 }
