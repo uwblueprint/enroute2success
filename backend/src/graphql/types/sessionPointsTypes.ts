@@ -28,5 +28,11 @@ export const sessionPointsTypeDefs = `#graphql
 
     "Points for one student in a session, or null if no row exists. Staff only."
     studentSessionPoints(studentId: Int!, sessionId: ID!): SessionPoints
+
+    "All points rows for the active student, newest session first. Students and parents only."
+    myPoints: [SessionPoints!]!
+
+    "Points for the active student in a session, or null if no row exists. Students and parents only."
+    mySessionPoints(sessionId: ID!): SessionPoints
   }
 `;
