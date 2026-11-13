@@ -3,10 +3,12 @@ import { UUIDResolver } from 'graphql-scalars';
 import type { GraphQLContext } from './context';
 import { announcementResolvers } from './resolvers/announcementResolvers';
 import { feedbackResolvers } from './resolvers/feedbackResolvers';
+import { sessionPointsResolvers } from './resolvers/sessionPointsResolvers';
 import { sessionResolvers } from './resolvers/sessionResolvers';
 import { userResolvers } from './resolvers/userResolvers';
 import { announcementTypeDefs } from './types/announcementTypes';
 import { feedbackTypeDefs } from './types/feedbackTypes';
+import { sessionPointsTypeDefs } from './types/sessionPointsTypes';
 import { sessionTypeDefs } from './types/sessionTypes';
 import { userTypeDefs } from './types/userTypes';
 
@@ -51,12 +53,20 @@ const baseResolvers = {
 };
 
 export const schema = makeExecutableSchema<GraphQLContext>({
-  typeDefs: [baseTypeDefs, userTypeDefs, sessionTypeDefs, announcementTypeDefs, feedbackTypeDefs],
+  typeDefs: [
+    baseTypeDefs,
+    userTypeDefs,
+    sessionTypeDefs,
+    announcementTypeDefs,
+    feedbackTypeDefs,
+    sessionPointsTypeDefs,
+  ],
   resolvers: [
     baseResolvers,
     userResolvers,
     sessionResolvers,
     announcementResolvers,
     feedbackResolvers,
+    sessionPointsResolvers,
   ],
 });
