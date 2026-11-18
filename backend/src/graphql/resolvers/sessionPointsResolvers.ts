@@ -1,8 +1,11 @@
 import { GraphQLError } from 'graphql';
+import { Role } from '../../../generated/client';
 import type { SessionPoints } from '../../../generated/client';
 import {
+  getMySessionPoints,
   getStudentSessionPoints,
   listSessionPoints,
+  listStudentPoints,
   SessionNotFoundError,
   sumSessionPoints,
 } from '../../services/sessionPointsService';
@@ -59,6 +62,50 @@ export const sessionPointsResolvers = {
       validateSessionId(args.sessionId);
 
       return getStudentSessionPoints(ctx.prisma, args.studentId, args.sessionId);
+    },
+
+    myPoints: async (
+      _parent: unknown,
+      _args: unknown,
+      ctx: GraphQLContext
+    ): Promise<SessionPoints[]> => {
+      const caller = requireRole(ctx.auth, [Role.STUDENT]);
+
+      if (caller.activeStudentId === null) {
+        throw new GraphQLError('No active student selected', {
+          extensions: { code: 'FORBIDDEN' },
+        });
+      }
+
+      return listStudentPoints(ctx.prisma, caller.activeStudentId);
+    },
+
+    mySessionPoints: async (
+      _parent: unknown,
+      args: SessionPointsArgs,
+      ctx: GraphQLContext
+    ): Promise<SessionPoints | null> => {
+      const caller = requireRole(ctx.auth, [Role.STUDENT]);
+
+      if (caller.activeStudentId === null) {
+        throw new GraphQLError('No active student selected', {
+          extensions: { code: 'FORBIDDEN' },
+        });
+      }
+
+      validateSessionId(args.sessionId);
+
+      try {
+        return await getMySessionPoints(ctx.prisma, caller.activeStudentId, args.sessionId);
+      } catch (error) {
+        if (error instanceof SessionNotFoundError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'NOT_FOUND', id: args.sessionId },
+          });
+        }
+
+        throw error;
+      }
     },
   },
 
