@@ -361,9 +361,9 @@ Run a full seed to prepare the feedback fixtures. Students **A (`990001`)** and 
 both managed by `nonstaff@e2s.test`. Their names are
 `Dev Feedback A` and `Dev Feedback B`. Existing matching student records are left unchanged.
 
-The feedback sessions use fixed UUIDs and dates relative to the day you seed in `America/Toronto`,
+The feedback sessions use fixed UUIDs and dates relative to the day you seed in `ORG_TIMEZONE`,
 including daylight saving. They start at local midnight and end at the next local midnight. Reseed if
-the Toronto calendar date changes before your timing checks.
+the local calendar date changes before your timing checks.
 
 | Session       | UUID                                   | Date at seeding              |
 | ------------- | -------------------------------------- | ---------------------------- |

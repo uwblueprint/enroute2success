@@ -1,9 +1,6 @@
 import { Prisma, Role } from '../../generated/client';
 import type { Feedback, PrismaClient } from '../../generated/client';
-import { zonedWallTimeToUtc } from '../utils/datetime';
-
-const FEEDBACK_TIMEZONE = 'America/Toronto';
-const FEEDBACK_LOOKBACK_DAYS = 7;
+import { isWithinSessionEditWindow } from '../utils/datetime';
 
 export type CreateFeedbackInput = {
   receiver: number;
@@ -64,26 +61,7 @@ export function assertFeedbackEditWindow(
     return;
   }
 
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: FEEDBACK_TIMEZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(sessionStart);
-  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
-  const year = get('year');
-  const month = get('month');
-  const day = get('day');
-
-  const windowStart = zonedWallTimeToUtc(year, month, day, FEEDBACK_TIMEZONE);
-  const windowEnd = zonedWallTimeToUtc(
-    year,
-    month,
-    day + FEEDBACK_LOOKBACK_DAYS + 1,
-    FEEDBACK_TIMEZONE
-  );
-
-  if (now < windowStart || now >= windowEnd) {
+  if (!isWithinSessionEditWindow(sessionStart, now)) {
     throw new FeedbackEditWindowError();
   }
 }

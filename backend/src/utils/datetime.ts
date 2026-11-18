@@ -189,3 +189,13 @@ export function localDayEndUtc(value: string, timeZone: string = ORG_TIMEZONE): 
   const nextMidnight = zonedWallTimeToUtc(parts[0], parts[1], parts[2] + 1, timeZone);
   return new Date(nextMidnight.getTime() - 60_000);
 }
+
+/** Includes the session's local date in ORG_TIMEZONE and the seven calendar days that follow it. */
+export function isWithinSessionEditWindow(sessionStart: Date, now: Date = new Date()): boolean {
+  const windowDays = 8;
+  const [year, month, day] = currentLocalDate(ORG_TIMEZONE, sessionStart).split('-').map(Number);
+  const windowStart = zonedWallTimeToUtc(year, month, day, ORG_TIMEZONE);
+  const windowEnd = zonedWallTimeToUtc(year, month, day + windowDays, ORG_TIMEZONE);
+
+  return now >= windowStart && now < windowEnd;
+}
