@@ -2,7 +2,7 @@
 
 The dev seed (`src/scripts/seed.ts`) creates synthetic staff accounts, parent and student accounts,
 Student profiles, and development setup tokens for manual authentication checks. A full seed also
-adds fixtures for sessions, announcements, and feedback.
+adds fixtures for sessions, announcements, feedback, and session points.
 
 ## Run the seed
 
@@ -14,11 +14,13 @@ docker compose exec backend npm run prisma:migrate:deploy
 docker compose exec backend npm run db:seed -- --auth-only
 ```
 
-`--auth-only` preserves feedback, feedback students, sessions, session series, and announcements.
+`--auth-only` preserves session points and existing student totals, as well as feedback, feedback
+students, sessions, session series, and announcements.
 
-For calendar, announcement, or feedback checks, run a full seed. It replaces **all feedback, sessions,
-session series, and announcements** in the local development database, including rows added during
-earlier manual checks.
+For calendar, announcement, feedback, or points checks, run a full seed. It replaces **all session
+points, feedback, sessions, session series, and announcements** in the local development database,
+including rows added during earlier manual checks. It subtracts the removed points rows' contributions
+from student totals and sets membership `900001` to **25 points** from the new fixtures.
 
 ```sh
 docker compose exec backend npm run db:seed
@@ -37,7 +39,7 @@ sessions, restores the eight fixture students' initial manager assignments, clea
 those membership IDs, and prints fresh setup tokens. It also removes the completed
 `setup.new@e2s.test` account so that the new-account setup case can be repeated. Account contact
 details and Student profile fields are preserved. Pair `--reset-auth` with `--auth-only` to preserve
-feedback, sessions, session series, and announcements.
+session points, student totals, feedback, sessions, session series, and announcements.
 
 The reset is limited to these reserved auth fixtures. Other accounts and nonfixture students are
 preserved. If the new-User setup account has a staff role, announcements, nonfixture students, or
@@ -133,7 +135,7 @@ restores the assignments below.
 
 | Membership ID | Initial manager          | Purpose                                                    |
 | ------------- | ------------------------ | ---------------------------------------------------------- |
-| `900001`      | `parent.multi@e2s.test`  | First family profile; 25 points                            |
+| `900001`      | `parent.multi@e2s.test`  | First family profile, with 25 points after a full seed     |
 | `900002`      | `parent.multi@e2s.test`  | Second family profile; preferred name `Dev Two`            |
 | `900003`      | `parent.single@e2s.test` | Single-profile login; foreign profile for the multi-parent |
 | `900004`      | `student@e2s.test`       | Self-managed student login                                 |
@@ -172,9 +174,9 @@ or Student identity rolls back all auth changes before touching sessions. Unrela
 deleted. An already-claimed setup case is skipped rather than reset.
 
 A full seed checks for conflicting feedback student IDs before clearing data. It creates any missing
-feedback students and replaces feedback, sessions, session series, and announcements in a separate
-transaction. Feedback is deleted before sessions because of the foreign key. A failure rolls back
-all changes in that transaction.
+feedback students and replaces session points, feedback, sessions, session series, and announcements
+in a separate transaction. It adjusts student totals and deletes session points and feedback before
+deleting sessions. A failure rolls back all changes in that transaction.
 
 If a password-changing test changes a fixture password, an ordinary rerun preserves it. Use
 `--auth-only --reset-auth` to restore the seeded passwords, or use the admin password-reset mutation
@@ -451,7 +453,7 @@ Run the baseline reads before mutations, since successful writes change the expe
 With any staff token:
 
 ```graphql
-query StaffFeedback($sessionId: ID!, $studentId: Int!) {
+query StaffFeedback($sessionId: UUID!, $studentId: Int!) {
   sessionFeedback(sessionId: $sessionId) {
     id
     studentId
@@ -485,7 +487,7 @@ the nullable `studentSessionFeedback` lookup returns `null` when queried on its 
 With a STUDENT token:
 
 ```graphql
-query StudentFeedback($sessionId: ID!) {
+query StudentFeedback($sessionId: UUID!) {
   myFeedback {
     id
     studentId
@@ -548,7 +550,7 @@ Substitute an absent student ID or session UUID to get `NOT_FOUND`. For an absen
 Log in as the volunteer and edit the coach-authored Today entry:
 
 ```graphql
-mutation UpdateFeedback($id: ID!, $input: UpdateFeedbackInput!) {
+mutation UpdateFeedback($id: UUID!, $input: UpdateFeedbackInput!) {
   updateFeedback(id: $id, input: $input) {
     id
     studentId
@@ -600,3 +602,41 @@ Day 8, and Future pairs are initially empty. For timing updates, use A's seeded 
 
 Enrollment and staff-to-session assignment are still the ticket's explicit TODOs. Any existing student
 and session pair is currently accepted, subject to staff authorization, uniqueness, and timing rules.
+
+## Session points fixtures
+
+A full seed adds two points rows for membership `900001`, managed by `parent.multi@e2s.test`. The
+rows reuse the Today and Day 7 sessions from the [feedback fixtures](#feedback-fixtures).
+
+| Session | Session UUID                           | Points row UUID                        | Row total | Giver and updater |
+| ------- | -------------------------------------- | -------------------------------------- | --------- | ----------------- |
+| Today   | `10000000-0000-4000-8000-000000000001` | `30000000-0000-4000-8000-000000000001` | 15        | Coach             |
+| Day 7   | `10000000-0000-4000-8000-000000000002` | `30000000-0000-4000-8000-000000000002` | 10        | Admin             |
+
+The full seed sets `900001`'s profile total to 25 on every run, including on a database seeded
+before the points rows existed. Other students keep any portion of their totals that came from
+outside the removed rows. Fresh auth-only seeds give `900001` the default of 0. The `--auth-only`
+and `--auth-only --reset-auth` invocations both preserve existing points rows and totals.
+
+For manual checks, reuse [staff login](#authenticate-feedback-requests). Log in to `loginStudent`
+with `parent.multi@e2s.test` and call `selectActiveStudent(membershipId: 900001)`, then use the
+returned token for `myPoints` and `mySessionPoints`. Switch to `900002` to see the second profile,
+which starts with no rows. Staff can use `sessionPointsForSession` with either fixture session UUID.
+`allStudents { membershipId points }` exposes the running total to admins and coaches.
+
+## Manual session points checks
+
+Apply migrations and run a full seed on a disposable local PostgreSQL database using the
+[seed instructions](#run-the-seed). Use the fixture logins and session UUIDs above.
+
+- Check that `myPoints` returns Today before Day 7 for `900001`. Switch to `900002` and expect
+  an empty list and a null detail for both sessions.
+- As coach, use `createSessionPoints` for `900002` in Today with attendance set to 8 and the other
+  nine categories set to 0. Expect the coach as both giver and updater, and 8 on the student profile.
+  Repeat the create and expect `BAD_USER_INPUT` and the same profile total.
+- As volunteer, use `updateSessionPoints` on the returned row with attendance set to 5 and the other
+  scores still 0. Expect the same row ID and giver, the volunteer as updater, a later `updatedAt`,
+  and a profile total of 5.
+- Run `--auth-only` and `--auth-only --reset-auth` and confirm the recorded points and totals
+  persist. Run the full seed twice and confirm each run restores just the two fixture rows and the
+  25-point total for `900001`.
