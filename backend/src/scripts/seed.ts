@@ -61,7 +61,6 @@ const SINGLE_PARENT_ID = '00000000-0000-4000-8000-000000000006';
 const SELF_MANAGED_ID = '00000000-0000-4000-8000-000000000007';
 const STUDENT_FIXTURE_NOTE = 'Synthetic development auth fixture; not a real participant.';
 const STUDENT_BIRTH_DATE = new Date('2015-06-07T00:00:00.000Z');
-const FEEDBACK_TIMEZONE = 'America/Toronto';
 const FEEDBACK_SESSION_IDS = {
   today: '10000000-0000-4000-8000-000000000001',
   day7: '10000000-0000-4000-8000-000000000002',
@@ -744,7 +743,7 @@ async function seedAnnouncements(tx: Prisma.TransactionClient): Promise<void> {
 async function seedFeedback(tx: Prisma.TransactionClient): Promise<void> {
   const sessionIds = FEEDBACK_SESSION_IDS;
   const now = new Date();
-  const [year, month, day] = currentLocalDate(FEEDBACK_TIMEZONE, now).split('-').map(Number);
+  const [year, month, day] = currentLocalDate(ORG_TIMEZONE, now).split('-').map(Number);
   const sessionFixtures = [
     { id: sessionIds.today, label: 'Today', daysAgo: 0 },
     { id: sessionIds.day7, label: 'Day 7', daysAgo: 7 },
@@ -759,8 +758,8 @@ async function seedFeedback(tx: Prisma.TransactionClient): Promise<void> {
       name: `[Feedback] ${fixture.label}`,
       status: 'scheduled',
       session_type: 'chess',
-      start_datetime: zonedWallTimeToUtc(year, month, day - fixture.daysAgo, FEEDBACK_TIMEZONE),
-      end_datetime: zonedWallTimeToUtc(year, month, day - fixture.daysAgo + 1, FEEDBACK_TIMEZONE),
+      start_datetime: zonedWallTimeToUtc(year, month, day - fixture.daysAgo, ORG_TIMEZONE),
+      end_datetime: zonedWallTimeToUtc(year, month, day - fixture.daysAgo + 1, ORG_TIMEZONE),
       image_urls: [],
     })),
   });
