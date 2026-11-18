@@ -190,13 +190,12 @@ export function localDayEndUtc(value: string, timeZone: string = ORG_TIMEZONE): 
   return new Date(nextMidnight.getTime() - 60_000);
 }
 
-/** Includes the Toronto session date and the seven calendar days that follow it. */
+/** Includes the session's local date in ORG_TIMEZONE and the seven calendar days that follow it. */
 export function isWithinSessionEditWindow(sessionStart: Date, now: Date = new Date()): boolean {
-  const timeZone = 'America/Toronto';
   const windowDays = 8;
-  const [year, month, day] = currentLocalDate(timeZone, sessionStart).split('-').map(Number);
-  const windowStart = zonedWallTimeToUtc(year, month, day, timeZone);
-  const windowEnd = zonedWallTimeToUtc(year, month, day + windowDays, timeZone);
+  const [year, month, day] = currentLocalDate(ORG_TIMEZONE, sessionStart).split('-').map(Number);
+  const windowStart = zonedWallTimeToUtc(year, month, day, ORG_TIMEZONE);
+  const windowEnd = zonedWallTimeToUtc(year, month, day + windowDays, ORG_TIMEZONE);
 
   return now >= windowStart && now < windowEnd;
 }
