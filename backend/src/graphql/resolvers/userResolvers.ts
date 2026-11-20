@@ -15,6 +15,7 @@ import {
   linkManagedStudent,
   loginStaff,
   loginStudent,
+  persistActiveStudent,
   requestAccountSetup,
   revokeRefreshToken,
   rotateRefreshToken,
@@ -181,6 +182,13 @@ export const userResolvers = {
         });
       }
 
+      await persistActiveStudent(
+        ctx.prisma,
+        caller.userId,
+        ctx.req.cookies?.refresh_token,
+        args.membershipId
+      );
+
       return payload;
     },
 
@@ -199,6 +207,13 @@ export const userResolvers = {
             extensions: { code: 'FORBIDDEN' },
           });
         }
+
+        await persistActiveStudent(
+          ctx.prisma,
+          caller.userId,
+          ctx.req.cookies?.refresh_token,
+          args.membershipId
+        );
 
         return payload;
       } catch (error) {

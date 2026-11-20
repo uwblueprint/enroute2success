@@ -221,7 +221,7 @@ token before these requests so context validation does not reject the request fi
 | Account queries             | `me { students }` and `myStudents` returns only the caller's students, sorted by membership ID. An anonymous request returns `UNAUTHENTICATED`.                                                                                   |
 | Profile switching           | As multi-parent, `selectActiveStudent` with `900002` changes the active membership and preserves the User ID. `900003` returns `FORBIDDEN`.                                                                                       |
 | Linking                     | As multi-parent, `linkManagedStudent` with `900006` succeeds and activates it. Repeating it or linking `900003` returns `CONFLICT`; `999999` returns `NOT_FOUND`. Staff returns `FORBIDDEN`; anonymous returns `UNAUTHENTICATED`. |
-| Existing refresh session    | Switch/link should not set a refresh cookie. `refreshAccessToken` rotates the existing cookie and applies email-login selection rules: multiple students means null active student.                                               |
+| Existing refresh session    | Switch/link should not set a refresh cookie. `refreshAccessToken` rotates the existing cookie and keeps the session's selected student (stored on the refresh token by login/switch/link).                                        |
 | Logout/replay               | `logout` clears/revokes the refresh cookie; refreshing with the old cookie fails. Reusing an already-rotated refresh cookie also fails and revokes the account's active refresh sessions.                                         |
 | Setup confirmation          | `requestAccountSetup` with a missing/claimed membership returns `true` without a setup email. Valid requests require SMTP to check actual delivery.                                                                               |
 | New account completion      | First try the printed new-account token with missing/blank owner details: expect a field-specific error without claiming it. Then supply all three owner details and a nonblank password; the response activates `900005`.        |
@@ -357,9 +357,8 @@ accounts return `FORBIDDEN`. No new migration is needed for this mutation.
 
 ## Feedback fixtures
 
-Run a full seed to prepare the feedback fixtures. Students **A (`990001`)** and **B (`990002`)** are
-both managed by `nonstaff@e2s.test`. Their names are
-`Dev Feedback A` and `Dev Feedback B`. Existing matching student records are left unchanged.
+Run a full seed to prepare the feedback fixtures. Students **A (`900001`)** and **B (`900002`)** are
+the multi-parent account's students (`parent.multi@e2s.test`), created by the auth fixtures.
 
 The feedback sessions use fixed UUIDs and dates relative to the day you seed in `America/Toronto`,
 including daylight saving. They start at local midnight and end at the next local midnight. Reseed if
@@ -421,7 +420,7 @@ form `00000000-0000-4000-8000-000000000001` for admin. Use these to verify autho
 
 ### Student tokens
 
-Use `loginStudent` to sign in as the nonstaff fixture with a selected profile.
+Use `loginStudent` to sign in as the multi-parent fixture with a selected profile.
 
 ```graphql
 mutation LoginForFeedback($input: LoginInput!) {
@@ -435,11 +434,11 @@ mutation LoginForFeedback($input: LoginInput!) {
 ```
 
 ```json
-{ "input": { "membershipId": 990001, "password": "DevOnly!12345" } }
+{ "input": { "membershipId": 900001, "password": "DevOnly!12345" } }
 ```
 
-Use membership ID `990002` for B. To obtain a token with no active student, replace `membershipId`
-with the `email` field set to `nonstaff@e2s.test`. Use the returned token in the Authorization header.
+Use membership ID `900002` for B. To obtain a token with no active student, replace `membershipId`
+with the `email` field set to `parent.multi@e2s.test`. Use the returned token in the Authorization header.
 
 Access tokens expire after **15 minutes**. Log in again to refresh them. Reseed when you need to
 restore the feedback fixtures or update the session dates.
@@ -473,7 +472,7 @@ query StaffFeedback($sessionId: ID!, $studentId: Int!) {
 ```json
 {
   "sessionId": "10000000-0000-4000-8000-000000000001",
-  "studentId": 990001
+  "studentId": 900001
 }
 ```
 
@@ -531,7 +530,7 @@ mutation CreateFeedback($input: CreateFeedbackInput!) {
 ```json
 {
   "input": {
-    "studentId": 990001,
+    "studentId": 900001,
     "sessionId": "10000000-0000-4000-8000-000000000005",
     "text": "  Local feedback check  "
   }
@@ -578,7 +577,7 @@ returns `NOT_FOUND`.
 
 Check `errors[].extensions.code` for failures. These operations are manual checks; the seed does not
 mark them as passed. Reseed between independent successful create scenarios so an existing pair does
-not turn a timing check into a duplicate check. For timing creates, use B (`990002`), whose Day 7,
+not turn a timing check into a duplicate check. For timing creates, use B (`900002`), whose Day 7,
 Day 8, and Future pairs are initially empty. For timing updates, use A's seeded entries above.
 
 | Request                                                                  | Expected result                |
