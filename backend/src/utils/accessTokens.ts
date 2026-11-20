@@ -1,5 +1,4 @@
 import 'dotenv/config';
-import { GraphQLError } from 'graphql';
 import jwt from 'jsonwebtoken';
 import { Role } from '../../generated/client';
 import type { AuthenticatedUser } from './auth';
@@ -26,7 +25,7 @@ export function generateAccessToken(user: AuthenticatedUser): string {
   });
 }
 
-export function verifyAccessToken(token: string): AuthenticatedUser {
+export function verifyAccessToken(token: string): AuthenticatedUser | null {
   try {
     const payload = jwt.verify(token, signingKey, { algorithms: ['HS256'] });
 
@@ -57,8 +56,6 @@ export function verifyAccessToken(token: string): AuthenticatedUser {
 
     return { userId: payload.sub, role, activeStudentId };
   } catch {
-    throw new GraphQLError('Invalid or expired access token', {
-      extensions: { code: 'UNAUTHENTICATED' },
-    });
+    return null;
   }
 }
