@@ -21,11 +21,7 @@ export interface SendEmailInput {
 
 export async function sendEmail(input: SendEmailInput): Promise<void> {
   if (!transporter) {
-    console.warn(
-      `[emailService] SMTP_USER/SMTP_PASS not set — skipping email to "${input.to}" ` +
-        `with subject "${input.subject}".`
-    );
-    return;
+    throw new Error('Email is not configured: SMTP_USER/SMTP_PASS are not set');
   }
 
   await transporter.sendMail({

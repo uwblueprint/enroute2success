@@ -325,7 +325,7 @@ export async function requestAccountSetup(prisma: PrismaClient, email: string): 
   const rawToken = generateAccountSetupToken();
   const setupUrl = getAccountSetupUrl(rawToken);
 
-  await prisma.accountSetupToken.create({
+  const token = await prisma.accountSetupToken.create({
     data: {
       email: setupEmail,
       token_hash: hashAccountSetupToken(rawToken),
@@ -335,8 +335,10 @@ export async function requestAccountSetup(prisma: PrismaClient, email: string): 
 
   try {
     await sendSetPasswordEmail(setupEmail, setupUrl);
-  } catch {
-    console.error('[accountSetup] Failed to send setup email');
+  } catch (error) {
+    console.error('[accountSetup] Failed to send setup email', error);
+    await prisma.accountSetupToken.delete({ where: { id: token.id } }).catch(() => undefined);
+    throw error;
   }
 
   return true;
