@@ -28,6 +28,6 @@ export const sessionTypeDefs = `#graphql
     ): [Session!]!
 
     "A single session by id. Returns a NOT_FOUND error if no session matches."
-    session(id: ID!): Session!
+    session(id: UUID!): Session!
   }
 `;

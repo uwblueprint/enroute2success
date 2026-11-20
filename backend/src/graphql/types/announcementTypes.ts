@@ -47,9 +47,9 @@ export const announcementTypeDefs = `#graphql
     createAnnouncement(input: CreateAnnouncementInput!): Announcement!
 
     "ADMIN only. Live or upcoming announcements only."
-    updateAnnouncement(id: ID!, input: UpdateAnnouncementInput!): Announcement!
+    updateAnnouncement(id: UUID!, input: UpdateAnnouncementInput!): Announcement!
 
     "ADMIN only. Soft delete; live or upcoming announcements only."
-    deleteAnnouncement(id: ID!): Announcement!
+    deleteAnnouncement(id: UUID!): Announcement!
   }
 `;

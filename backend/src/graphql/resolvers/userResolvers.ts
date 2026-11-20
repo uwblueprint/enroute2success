@@ -30,6 +30,16 @@ import type {
 } from '../../services/userService';
 import { requireRole } from '../../utils/auth';
 import { clearRefreshTokenCookie, setRefreshTokenCookie } from '../../utils/refreshTokenCookies';
+import {
+  badUserInput,
+  validateEmail,
+  validateLoginPassword,
+  validatePassword,
+  validatePersonName,
+  validatePhone,
+  validatePositiveInt,
+  validateStudentInput,
+} from '../../utils/validation';
 
 export const userResolvers = {
   Role: {
@@ -119,7 +129,10 @@ export const userResolvers = {
       args: { email: string; password: string },
       ctx: GraphQLContext
     ) => {
-      const session = await loginStaff(ctx.prisma, args.email, args.password);
+      const email = validateEmail(args.email);
+      const password = validateLoginPassword(args.password);
+
+      const session = await loginStaff(ctx.prisma, email, password);
 
       if (!session) {
         throw new GraphQLError('email or password is incorrect', {
@@ -138,8 +151,16 @@ export const userResolvers = {
     },
 
     loginStudent: async (_parent: unknown, args: { input: LoginInput }, ctx: GraphQLContext) => {
+      const { email, membershipId, password } = args.input;
+      const input: LoginInput = {
+        email: email != null ? validateEmail(email) : null,
+        membershipId:
+          membershipId != null ? validatePositiveInt(membershipId, 'membershipId') : null,
+        password: validateLoginPassword(password),
+      };
+
       try {
-        const session = await loginStudent(ctx.prisma, args.input);
+        const session = await loginStudent(ctx.prisma, input);
 
         if (!session) {
           throw new GraphQLError('email, membership ID, or password is incorrect', {
@@ -172,7 +193,8 @@ export const userResolvers = {
       ctx: GraphQLContext
     ) => {
       const caller = requireRole(ctx.auth, [PrismaRole.STUDENT]);
-      const payload = await selectActiveStudent(ctx.prisma, caller.userId, args.membershipId);
+      const membershipId = validatePositiveInt(args.membershipId, 'membershipId');
+      const payload = await selectActiveStudent(ctx.prisma, caller.userId, membershipId);
 
       if (!payload) {
         throw new GraphQLError('You do not manage this student', {
@@ -184,7 +206,7 @@ export const userResolvers = {
         ctx.prisma,
         caller.userId,
         ctx.req.cookies?.refresh_token,
-        args.membershipId
+        membershipId
       );
 
       return payload;
@@ -197,7 +219,9 @@ export const userResolvers = {
     ) => {
       const caller = requireRole(ctx.auth, [PrismaRole.STUDENT]);
 
-      const payload = await createManagedStudent(ctx.prisma, caller.userId, args.student);
+      const student = validateStudentInput(args.student);
+
+      const payload = await createManagedStudent(ctx.prisma, caller.userId, student);
 
       if (!payload) {
         throw new GraphQLError('Unable to add a student for this account', {
@@ -218,8 +242,10 @@ export const userResolvers = {
     },
 
     requestAccountSetup: async (_parent: unknown, args: { email: string }, ctx: GraphQLContext) => {
+      const email = validateEmail(args.email);
+
       try {
-        return await requestAccountSetup(ctx.prisma, args.email);
+        return await requestAccountSetup(ctx.prisma, email);
       } catch (error) {
         if (error instanceof EmailInUseError) {
           throw new GraphQLError('An account with this email already exists', {
@@ -236,8 +262,17 @@ export const userResolvers = {
       args: CompleteAccountSetupInput,
       ctx: GraphQLContext
     ) => {
+      const input: CompleteAccountSetupInput = {
+        token: args.token,
+        newPassword: validatePassword(args.newPassword, 'newPassword'),
+        firstName: validatePersonName(args.firstName, 'firstName'),
+        lastName: validatePersonName(args.lastName, 'lastName'),
+        phoneNumber: validatePhone(args.phoneNumber),
+        student: validateStudentInput(args.student),
+      };
+
       try {
-        const session = await completeAccountSetup(ctx.prisma, args);
+        const session = await completeAccountSetup(ctx.prisma, input);
         setRefreshTokenCookie(ctx.res, session.refreshToken, session.refreshTokenExpiresAt);
 
         return {
@@ -314,8 +349,21 @@ export const userResolvers = {
     ) => {
       requireRole(ctx.auth, [PrismaRole.ADMIN]);
 
+      if (args.role === PrismaRole.STUDENT) {
+        throw badUserInput('Staff accounts require an ADMIN, COACH, or VOLUNTEER role', 'role');
+      }
+
+      const input: CreateStaffAccountInput = {
+        firstName: validatePersonName(args.firstName, 'firstName'),
+        lastName: validatePersonName(args.lastName, 'lastName'),
+        email: validateEmail(args.email),
+        phoneNumber: validatePhone(args.phoneNumber),
+        password: validatePassword(args.password),
+        role: args.role,
+      };
+
       try {
-        return await createStaffAccount(ctx.prisma, args);
+        return await createStaffAccount(ctx.prisma, input);
       } catch (error) {
         if (error instanceof EmailInUseError) {
           throw new GraphQLError('Email is already in use', {
@@ -334,7 +382,8 @@ export const userResolvers = {
     ) => {
       requireRole(ctx.auth, [PrismaRole.ADMIN]);
 
-      const updated = await setUserPassword(ctx.prisma, args.userId, args.newPassword);
+      const newPassword = validatePassword(args.newPassword, 'newPassword');
+      const updated = await setUserPassword(ctx.prisma, args.userId, newPassword);
 
       if (!updated) {
         throw new GraphQLError('User not found', {

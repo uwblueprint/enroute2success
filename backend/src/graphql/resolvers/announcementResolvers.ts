@@ -14,7 +14,7 @@ import {
   updateAnnouncement,
 } from '../../services/announcementService';
 import { allRoles, requireRole } from '../../utils/auth';
-import { isValidLocalDate } from '../../utils/datetime';
+import { badUserInput, validateCalendarDay, validateText } from '../../utils/validation';
 
 type CreateAnnouncementArgs = {
   input: { message: string; start_date: string; end_date: string };
@@ -25,23 +25,10 @@ type UpdateAnnouncementArgs = {
   input: { message?: string | null; start_date?: string | null; end_date?: string | null };
 };
 
-function badUserInput(message: string, field: string): GraphQLError {
-  return new GraphQLError(message, { extensions: { code: 'BAD_USER_INPUT', field } });
-}
+const MESSAGE_MAX_LENGTH = 2000;
 
 function validateMessage(message: string): string {
-  const trimmed = message.trim();
-  if (trimmed.length === 0) {
-    throw badUserInput('message cannot be empty', 'message');
-  }
-  return trimmed;
-}
-
-function validateDay(value: string, field: string): string {
-  if (!isValidLocalDate(value)) {
-    throw badUserInput(`${field} must be a valid date in YYYY-MM-DD format`, field);
-  }
-  return value;
+  return validateText(message, 'message', MESSAGE_MAX_LENGTH);
 }
 
 function toGraphQLError(error: unknown): unknown {
@@ -84,8 +71,8 @@ export const announcementResolvers = {
       const caller = requireRole(ctx.auth, [PrismaRole.ADMIN]);
 
       const message = validateMessage(args.input.message);
-      const startDate = validateDay(args.input.start_date, 'start_date');
-      const endDate = validateDay(args.input.end_date, 'end_date');
+      const startDate = validateCalendarDay(args.input.start_date, 'start_date');
+      const endDate = validateCalendarDay(args.input.end_date, 'end_date');
 
       try {
         return await createAnnouncement(ctx.prisma, caller.userId, {
@@ -113,10 +100,10 @@ export const announcementResolvers = {
         changes.message = validateMessage(message);
       }
       if (start_date != null) {
-        changes.start_date = validateDay(start_date, 'start_date');
+        changes.start_date = validateCalendarDay(start_date, 'start_date');
       }
       if (end_date != null) {
-        changes.end_date = validateDay(end_date, 'end_date');
+        changes.end_date = validateCalendarDay(end_date, 'end_date');
       }
       if (Object.keys(changes).length === 0) {
         throw badUserInput('Provide at least one field to update', 'input');

@@ -27,12 +27,12 @@ export const fileTypeDefs = `#graphql
   }
 
   extend type Query {
-    file(id: ID!): File
+    file(id: UUID!): File
   }
 
   extend type Mutation {
     requestFileUpload(input: RequestFileUploadInput!): FileUploadTarget!
-    confirmFileUpload(fileId: ID!): File!
-    deleteFile(fileId: ID!): File!
+    confirmFileUpload(fileId: UUID!): File!
+    deleteFile(fileId: UUID!): File!
   }
 `;

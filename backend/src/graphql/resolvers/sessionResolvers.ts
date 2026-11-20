@@ -5,6 +5,9 @@ import type { GraphQLContext } from '../context';
 import { allRoles, requireRole } from '../../utils/auth';
 import { getSessionById, listSessionsForMonth } from '../../services/sessionService';
 
+const MIN_YEAR = 2000;
+const MAX_YEAR = 2100;
+
 type SessionsArgs = {
   month?: number | null;
   year?: number | null;
@@ -35,7 +38,12 @@ export const sessionResolvers = {
       }
       if (hasMonth && (month! < 1 || month! > 12)) {
         throw new GraphQLError('month must be between 1 and 12', {
-          extensions: { code: 'BAD_USER_INPUT' },
+          extensions: { code: 'BAD_USER_INPUT', field: 'month' },
+        });
+      }
+      if (hasYear && (year! < MIN_YEAR || year! > MAX_YEAR)) {
+        throw new GraphQLError(`year must be between ${MIN_YEAR} and ${MAX_YEAR}`, {
+          extensions: { code: 'BAD_USER_INPUT', field: 'year' },
         });
       }
 
