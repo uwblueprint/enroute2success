@@ -14,8 +14,8 @@
  * clears fixture refresh/setup tokens and removes the completed new-User setup
  * account so that setup case can be repeated.
  *
- * Feedback students: creates two fixtures managed by the nonstaff account. Refuses
- * conflicting membership IDs and preserves existing matching students.
+ * Feedback fixtures attach to the multi-parent account's students (900001, 900002),
+ * which the auth fixtures create.
  * A full seed replaces feedback, sessions, series, and announcements in one transaction.
  * Fixture coverage (maps to the testing checklist):
  *  - Sessions with AND without `max_attendees`.
@@ -24,7 +24,8 @@
  *  - One near midnight on the LAST day of a month (timezone edge case).
  *  - One in a PAST month.
  *  - One belonging to a `session_series`, and one one-off (null series).
- *  - Feedback for two students, with different staff authors.
+ *  - Feedback for the multi-parent account's two students (900001, 900002), with
+ *    different staff authors.
  *  - Sessions today, 7 days ago, 8 days ago, tomorrow, and an empty session.
  *
  * Announcements: wipes existing announcements and inserts one fixture per
@@ -61,11 +62,6 @@ const SELF_MANAGED_ID = '00000000-0000-4000-8000-000000000007';
 const STUDENT_FIXTURE_NOTE = 'Synthetic development auth fixture; not a real participant.';
 const STUDENT_BIRTH_DATE = new Date('2015-06-07T00:00:00.000Z');
 const FEEDBACK_TIMEZONE = 'America/Toronto';
-
-const feedbackStudents = [
-  { membership_id: 990001, first_name: 'Dev', last_name: 'Feedback A' },
-  { membership_id: 990002, first_name: 'Dev', last_name: 'Feedback B' },
-];
 
 const accounts = [
   {
@@ -376,36 +372,6 @@ async function seedAuthFixtures(resetAuth: boolean): Promise<void> {
   console.log('\nValid development setup tokens expire after one hour. No emails were sent.');
 }
 
-async function seedFeedbackStudents(tx: Prisma.TransactionClient): Promise<void> {
-  for (const student of feedbackStudents) {
-    const existing = await tx.student.findUnique({
-      where: { membership_id: student.membership_id },
-      select: { manager_id: true, first_name: true, last_name: true },
-    });
-
-    if (existing) {
-      if (
-        existing.manager_id !== NONSTAFF_ID ||
-        existing.first_name !== student.first_name ||
-        existing.last_name !== student.last_name
-      ) {
-        throw new SeedError(`Student fixture ID ${student.membership_id} is already in use.`);
-      }
-
-      continue;
-    }
-
-    await tx.student.create({
-      data: {
-        ...student,
-        manager_id: NONSTAFF_ID,
-        allergies: [],
-        birth_date: new Date('2010-01-01T00:00:00.000Z'),
-      },
-    });
-  }
-}
-
 /** Build a UTC Date from local wall-clock parts in the ORG timezone. */
 function local(year: number, month: number, day: number, hour = 0, minute = 0): Date {
   // zonedWallTimeToUtc resolves local midnight; add the intra-day offset.
@@ -708,38 +674,38 @@ async function seedFeedback(tx: Prisma.TransactionClient): Promise<void> {
   const feedbackFixtures = [
     {
       id: '20000000-0000-4000-8000-000000000001',
-      receiver: 990001,
+      receiver: 900001,
       session_id: sessionIds.today,
       giver: COACH_ID,
-      text: 'Seed: student A / today',
+      text: 'Great focus today! You stayed patient through every drill and asked thoughtful questions. Keep practicing your grip at home.',
     },
     {
       id: '20000000-0000-4000-8000-000000000002',
-      receiver: 990002,
+      receiver: 900002,
       session_id: sessionIds.today,
       giver: ADMIN_ID,
-      text: 'Seed: student B / today',
+      text: 'Wonderful teamwork today. You encouraged your partner and showed real improvement in your follow-through.',
     },
     {
       id: '20000000-0000-4000-8000-000000000003',
-      receiver: 990001,
+      receiver: 900001,
       session_id: sessionIds.day7,
       giver: COACH_ID,
-      text: 'Seed: student A / day 7',
+      text: 'Nice progress this week. Your swing is smoother, and you were quick to help set up and put away equipment.',
     },
     {
       id: '20000000-0000-4000-8000-000000000004',
-      receiver: 990001,
+      receiver: 900001,
       session_id: sessionIds.day8,
       giver: ADMIN_ID,
-      text: 'Seed: student A / day 8',
+      text: 'Good effort in a tough session. Try to take a breath before each shot, and remember that mistakes are part of learning.',
     },
     {
       id: '20000000-0000-4000-8000-000000000005',
-      receiver: 990001,
+      receiver: 900001,
       session_id: sessionIds.future,
       giver: ADMIN_ID,
-      text: 'Seed: student A / future',
+      text: 'Looking forward to seeing you again! Next time we will work on pacing and building on the skills you have developed so far.',
     },
   ];
 
@@ -775,7 +741,6 @@ async function main(): Promise<void> {
 
   await prisma.$transaction(
     async (tx) => {
-      await seedFeedbackStudents(tx);
       // Feedback must be removed before sessions because its FK uses Restrict.
       await tx.feedback.deleteMany({});
       await tx.session.deleteMany({});
@@ -787,7 +752,7 @@ async function main(): Promise<void> {
     { timeout: 15_000 }
   );
   console.log(
-    '✅ Feedback fixtures ready: students 990001/990002, 5 sessions, and 5 feedback entries.'
+    '✅ Feedback fixtures ready: multi-parent students 900001/900002, 5 sessions, and 5 feedback entries.'
   );
 }
 

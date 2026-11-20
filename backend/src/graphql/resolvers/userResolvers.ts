@@ -14,6 +14,7 @@ import {
   getUserWithStaff,
   loginStaff,
   loginStudent,
+  persistActiveStudent,
   requestAccountSetup,
   revokeRefreshToken,
   rotateRefreshToken,
@@ -179,6 +180,13 @@ export const userResolvers = {
         });
       }
 
+      await persistActiveStudent(
+        ctx.prisma,
+        caller.userId,
+        ctx.req.cookies?.refresh_token,
+        args.membershipId
+      );
+
       return payload;
     },
 
@@ -195,6 +203,15 @@ export const userResolvers = {
         throw new GraphQLError('Unable to add a student for this account', {
           extensions: { code: 'FORBIDDEN' },
         });
+      }
+
+      if (payload.activeStudent) {
+        await persistActiveStudent(
+          ctx.prisma,
+          caller.userId,
+          ctx.req.cookies?.refresh_token,
+          payload.activeStudent.membership_id
+        );
       }
 
       return payload;

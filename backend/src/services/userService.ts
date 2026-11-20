@@ -231,6 +231,7 @@ async function loginAccount(
           user_id: user.id,
           token_hash: hashRefreshToken(session.refreshToken),
           expires_at: session.refreshTokenExpiresAt,
+          active_student_id: session.activeStudent?.membership_id ?? null,
         },
       });
 
@@ -238,6 +239,29 @@ async function loginAccount(
     },
     { isolationLevel: 'ReadCommitted' }
   );
+}
+
+export async function persistActiveStudent(
+  prisma: Pick<PrismaClient, 'refresh_tokens'>,
+  userId: string,
+  rawRefreshToken: unknown,
+  membershipId: number
+): Promise<void> {
+  if (typeof rawRefreshToken !== 'string' || rawRefreshToken === '') {
+    return;
+  }
+
+  // updateMany (not update) because update requires a unique-only `where`. We also need to
+  // filter on user_id and revoked_at, and a non-matching row (missing, revoked, or owned by
+  // another user) should be a harmless no-op (count 0) instead of throwing.
+  await prisma.refresh_tokens.updateMany({
+    where: {
+      token_hash: hashRefreshToken(rawRefreshToken),
+      user_id: userId,
+      revoked_at: null,
+    },
+    data: { active_student_id: membershipId },
+  });
 }
 
 export async function loginStaff(
@@ -416,6 +440,7 @@ export async function completeAccountSetup(
           user_id: user.id,
           token_hash: hashRefreshToken(session.refreshToken),
           expires_at: session.refreshTokenExpiresAt,
+          active_student_id: session.activeStudent?.membership_id ?? null,
         },
       });
 
@@ -508,7 +533,16 @@ export async function rotateRefreshToken(
         return null;
       }
 
-      const session = createSession(storedToken.user, storedToken.user.students);
+      const { user, active_student_id: activeStudentId } = storedToken;
+      let session: AuthSession | null = null;
+
+      if (activeStudentId !== null) {
+        session = createSession(user, user.students, activeStudentId);
+      }
+
+      if (!session) {
+        session = createSession(user, user.students);
+      }
 
       if (!session) {
         return null;
@@ -524,6 +558,7 @@ export async function rotateRefreshToken(
           user_id: storedToken.user_id,
           token_hash: hashRefreshToken(session.refreshToken),
           expires_at: session.refreshTokenExpiresAt,
+          active_student_id: session.activeStudent?.membership_id ?? null,
         },
       });
 
