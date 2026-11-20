@@ -26,6 +26,15 @@ export const userTypeDefs = `#graphql
     students: [Student!]!
   }
 
+  input StudentInput {
+    firstName: String!
+    lastName: String!
+    preferredName: String
+    birthDate: String!
+    allergies: [String!]
+    notes: String
+  }
+
   input LoginInput {
     email: String
     membershipId: Int
@@ -55,16 +64,17 @@ export const userTypeDefs = `#graphql
 
     selectActiveStudent(membershipId: Int!): AuthPayload!
 
-    linkManagedStudent(membershipId: Int!): AuthPayload!
+    createManagedStudent(student: StudentInput!): AuthPayload!
 
-    requestAccountSetup(email: String!, membershipId: Int!): Boolean!
+    requestAccountSetup(email: String!): Boolean!
 
     completeAccountSetup(
       token: String!
       newPassword: String!
-      firstName: String
-      lastName: String
-      phoneNumber: String
+      firstName: String!
+      lastName: String!
+      phoneNumber: String!
+      student: StudentInput!
     ): AuthPayload!
 
     refreshAccessToken: AuthPayload!
