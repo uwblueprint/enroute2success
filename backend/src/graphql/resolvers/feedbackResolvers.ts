@@ -16,6 +16,9 @@ import {
   updateFeedback,
 } from '../../services/feedbackService';
 import { requireRole, staffRoles } from '../../utils/auth';
+import { validatePositiveInt, validateText } from '../../utils/validation';
+
+const FEEDBACK_TEXT_MAX_LENGTH = 5000;
 
 type SessionFeedbackArgs = {
   sessionId: string;
@@ -68,8 +71,9 @@ export const feedbackResolvers = {
       ctx: GraphQLContext
     ): Promise<Feedback | null> => {
       requireRole(ctx.auth, staffRoles);
+      const studentId = validatePositiveInt(args.studentId, 'studentId');
 
-      return getStudentSessionFeedback(ctx.prisma, args.studentId, args.sessionId);
+      return getStudentSessionFeedback(ctx.prisma, studentId, args.sessionId);
     },
 
     myFeedback: async (
@@ -122,14 +126,9 @@ export const feedbackResolvers = {
       ctx: GraphQLContext
     ): Promise<Feedback> => {
       const caller = requireRole(ctx.auth, staffRoles);
-      const { studentId, sessionId } = args.input;
-      const text = args.input.text.trim();
-
-      if (text.length === 0) {
-        throw new GraphQLError('Feedback text must not be empty', {
-          extensions: { code: 'BAD_USER_INPUT', field: 'text' },
-        });
-      }
+      const { sessionId } = args.input;
+      const studentId = validatePositiveInt(args.input.studentId, 'studentId');
+      const text = validateText(args.input.text, 'text', FEEDBACK_TEXT_MAX_LENGTH);
 
       try {
         return await createFeedback(
@@ -172,13 +171,7 @@ export const feedbackResolvers = {
       ctx: GraphQLContext
     ): Promise<Feedback> => {
       const caller = requireRole(ctx.auth, staffRoles);
-      const text = args.input.text.trim();
-
-      if (text.length === 0) {
-        throw new GraphQLError('Feedback text must not be empty', {
-          extensions: { code: 'BAD_USER_INPUT', field: 'text' },
-        });
-      }
+      const text = validateText(args.input.text, 'text', FEEDBACK_TEXT_MAX_LENGTH);
 
       try {
         return await updateFeedback(
