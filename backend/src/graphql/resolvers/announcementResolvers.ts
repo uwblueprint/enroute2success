@@ -13,7 +13,7 @@ import {
   listPastAnnouncements,
   updateAnnouncement,
 } from '../../services/announcementService';
-import { requireRole } from '../../utils/auth';
+import { allRoles, requireRole } from '../../utils/auth';
 import { isValidLocalDate } from '../../utils/datetime';
 
 type CreateAnnouncementArgs = {
@@ -59,11 +59,8 @@ function toGraphQLError(error: unknown): unknown {
 
 export const announcementResolvers = {
   Query: {
-    // TODO(auth): This resolver is intentionally NOT guarded with requireRole,
-    // because requireRole doesn't work for students/parents yet, so right now
-    // *anyone* (even an unauthenticated caller) can read it. Once Justin
-    // finishes the student/parent login flow, restrict it to logged-in users.
     currentAnnouncements: async (_parent: unknown, _args: unknown, ctx: GraphQLContext) => {
+      requireRole(ctx.auth, allRoles);
       return listCurrentAnnouncements(ctx.prisma);
     },
 

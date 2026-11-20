@@ -1,6 +1,8 @@
 import { GraphQLError } from 'graphql';
+import { Role } from '../../../generated/client';
 import type { session, session_status } from '../../../generated/client';
 import type { GraphQLContext } from '../context';
+import { allRoles, requireRole } from '../../utils/auth';
 import { getSessionById, listSessionsForMonth } from '../../services/sessionService';
 
 type SessionsArgs = {
@@ -15,12 +17,13 @@ type SessionArgs = {
 
 export const sessionResolvers = {
   Query: {
-    // TODO(auth): There is no auth/roles layer yet, so every status — including
-    // DRAFT and CANCELLED — is readable by anyone. Once auth lands, restrict
-    // DRAFT (and likely CANCELLED) to privileged roles and default anonymous
-    // callers to SCHEDULED only.
+    // Requires login. Staff can filter by any status; students/parents always
+    // get SCHEDULED and CANCELLED (any sessionStatuses they pass is ignored).
     sessions: async (_parent: unknown, args: SessionsArgs, ctx: GraphQLContext) => {
-      const { month, year, sessionStatuses } = args;
+      const caller = requireRole(ctx.auth, allRoles);
+      const { month, year } = args;
+      const sessionStatuses: session_status[] | null | undefined =
+        caller.role === Role.STUDENT ? ['scheduled', 'cancelled'] : args.sessionStatuses;
 
       const hasMonth = month != null;
       const hasYear = year != null;
@@ -41,12 +44,12 @@ export const sessionResolvers = {
       return listSessionsForMonth(ctx.prisma, target, sessionStatuses);
     },
 
-    // TODO(auth): Same lockdown as `sessions` — once auth exists, a nonexistent
-    // ID and an unauthorized-status ID should be indistinguishable (both
-    // NOT_FOUND) so DRAFT/CANCELLED sessions can't be probed by id.
+    // Requires login. For students/parents, DRAFT sessions are
+    // indistinguishable from nonexistent ones (both NOT_FOUND).
     session: async (_parent: unknown, args: SessionArgs, ctx: GraphQLContext): Promise<session> => {
+      const caller = requireRole(ctx.auth, allRoles);
       const found = await getSessionById(ctx.prisma, args.id);
-      if (!found) {
+      if (!found || (caller.role === Role.STUDENT && found.status === 'draft')) {
         throw new GraphQLError('Session not found', {
           extensions: { code: 'NOT_FOUND', id: args.id },
         });

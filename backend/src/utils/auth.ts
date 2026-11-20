@@ -3,6 +3,8 @@ import { Role } from '../../generated/client';
 
 export const staffRoles = [Role.ADMIN, Role.COACH, Role.VOLUNTEER] as const;
 
+export const allRoles = [Role.ADMIN, Role.COACH, Role.VOLUNTEER, Role.STUDENT] as const;
+
 export interface AuthenticatedUser {
   userId: string;
   role: Role;
