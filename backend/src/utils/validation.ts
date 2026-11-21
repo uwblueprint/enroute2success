@@ -118,6 +118,17 @@ export function validateCalendarDay(value: string, field: string): string {
   return value;
 }
 
+export function validateDateRange(from: string, to: string): { from: string; to: string } {
+  validateCalendarDay(from, 'from');
+  validateCalendarDay(to, 'to');
+
+  if (to < from) {
+    throw badUserInput('to cannot be before from', 'to');
+  }
+
+  return { from, to };
+}
+
 export function validateBirthDate(value: string, field = 'birthDate'): string {
   const day = validateCalendarDay(value, field);
 

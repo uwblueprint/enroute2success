@@ -20,10 +20,12 @@ export const sessionTypeDefs = `#graphql
   }
 
   extend type Query {
-    "Sessions for a calendar month, optionally filtered by status. Omit month+year for the current month."
+    "Sessions starting from the first day through the last day (both inclusive, org time), optionally filtered by status. Oldest start first."
     sessions(
-      month: Int
-      year: Int
+      "Calendar day as YYYY-MM-DD in org time, inclusive"
+      from: String!
+      "Calendar day as YYYY-MM-DD in org time, inclusive and not before from. At most 62 days after from."
+      to: String!
       sessionStatuses: [SessionStatus!]
     ): [Session!]!
 

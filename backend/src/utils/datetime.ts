@@ -176,16 +176,23 @@ export function localDayStartUtc(value: string, timeZone: string = ORG_TIMEZONE)
 }
 
 /**
- * UTC instant of 11:59 PM on the given local day. Computed as "midnight at the
- * start of the next local day, minus one minute" so it stays correct on the
- * 23- and 25-hour days around daylight saving changes.
+ * UTC instant of 12:00 AM on the local day after `value`. Use it as an exclusive upper
+ * bound to cover all of `value`. `value` must be a valid 'YYYY-MM-DD'.
  */
-export function localDayEndUtc(value: string, timeZone: string = ORG_TIMEZONE): Date {
+export function nextLocalDayStartUtc(value: string, timeZone: string = ORG_TIMEZONE): Date {
   const parts = splitLocalDate(value);
   if (!parts) {
     throw new RangeError(`Invalid calendar date: ${value}`);
   }
   // `day + 1` may overflow the month; Date.UTC (used inside) normalizes that.
-  const nextMidnight = zonedWallTimeToUtc(parts[0], parts[1], parts[2] + 1, timeZone);
-  return new Date(nextMidnight.getTime() - 60_000);
+  return zonedWallTimeToUtc(parts[0], parts[1], parts[2] + 1, timeZone);
+}
+
+/**
+ * UTC instant of 11:59 PM on the given local day. Computed as "midnight at the
+ * start of the next local day, minus one minute" so it stays correct on the
+ * 23- and 25-hour days around daylight saving changes.
+ */
+export function localDayEndUtc(value: string, timeZone: string = ORG_TIMEZONE): Date {
+  return new Date(nextLocalDayStartUtc(value, timeZone).getTime() - 60_000);
 }
