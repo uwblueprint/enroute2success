@@ -125,22 +125,39 @@ export async function getStudentSessionFeedback(
 
 export async function listStudentFeedback(
   prisma: PrismaClient,
-  activeStudentId: number
+  studentId: number
 ): Promise<Feedback[]> {
   return prisma.feedback.findMany({
-    where: { receiver: activeStudentId },
+    where: { receiver: studentId },
     orderBy: { session: { start_datetime: 'desc' } },
   });
 }
 
-export async function getMySessionFeedback(
+export async function listNonDraftStudentFeedback(
   prisma: PrismaClient,
-  activeStudentId: number,
+  studentId: number
+): Promise<Feedback[]> {
+  return prisma.feedback.findMany({
+    where: { receiver: studentId, session: { status: { not: 'draft' } } },
+    orderBy: { session: { start_datetime: 'desc' } },
+  });
+}
+
+export async function getNonDraftStudentSessionFeedback(
+  prisma: PrismaClient,
+  studentId: number,
   sessionId: string
 ): Promise<Feedback | null> {
-  await assertSessionExists(prisma, sessionId);
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+    select: { status: true },
+  });
 
-  return getStudentSessionFeedback(prisma, activeStudentId, sessionId);
+  if (!session || session.status === 'draft') {
+    throw new SessionNotFoundError();
+  }
+
+  return getStudentSessionFeedback(prisma, studentId, sessionId);
 }
 
 export async function createFeedback(

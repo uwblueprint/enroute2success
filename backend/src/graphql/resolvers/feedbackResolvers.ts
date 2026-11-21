@@ -7,15 +7,17 @@ import {
   FeedbackAlreadyExistsError,
   FeedbackEditWindowError,
   FeedbackNotFoundError,
-  getMySessionFeedback,
+  getNonDraftStudentSessionFeedback,
   getStudentSessionFeedback,
   listSessionFeedback,
+  listNonDraftStudentFeedback,
   listStudentFeedback,
   SessionNotFoundError,
   StudentNotFoundError,
   updateFeedback,
 } from '../../services/feedbackService';
-import { requireRole, staffRoles } from '../../utils/auth';
+import { managesStudent } from '../../services/userService';
+import { allRoles, requireRole, staffRoles } from '../../utils/auth';
 import { validatePositiveInt, validateText } from '../../utils/validation';
 
 const FEEDBACK_TEXT_MAX_LENGTH = 5000;
@@ -24,9 +26,11 @@ type SessionFeedbackArgs = {
   sessionId: string;
 };
 
-type StudentSessionFeedbackArgs = SessionFeedbackArgs & {
+type StudentFeedbackArgs = {
   studentId: number;
 };
+
+type StudentSessionFeedbackArgs = SessionFeedbackArgs & StudentFeedbackArgs;
 
 type CreateFeedbackArgs = {
   input: {
@@ -70,43 +74,21 @@ export const feedbackResolvers = {
       args: StudentSessionFeedbackArgs,
       ctx: GraphQLContext
     ): Promise<Feedback | null> => {
-      requireRole(ctx.auth, staffRoles);
+      const caller = requireRole(ctx.auth, allRoles);
       const studentId = validatePositiveInt(args.studentId, 'studentId');
 
-      return getStudentSessionFeedback(ctx.prisma, studentId, args.sessionId);
-    },
-
-    myFeedback: async (
-      _parent: unknown,
-      _args: unknown,
-      ctx: GraphQLContext
-    ): Promise<Feedback[]> => {
-      const caller = requireRole(ctx.auth, [Role.STUDENT]);
-
-      if (caller.activeStudentId === null) {
-        throw new GraphQLError('No active student selected', {
-          extensions: { code: 'FORBIDDEN' },
-        });
+      if (caller.role !== Role.STUDENT) {
+        return getStudentSessionFeedback(ctx.prisma, studentId, args.sessionId);
       }
 
-      return listStudentFeedback(ctx.prisma, caller.activeStudentId);
-    },
-
-    mySessionFeedback: async (
-      _parent: unknown,
-      args: SessionFeedbackArgs,
-      ctx: GraphQLContext
-    ): Promise<Feedback | null> => {
-      const caller = requireRole(ctx.auth, [Role.STUDENT]);
-
-      if (caller.activeStudentId === null) {
-        throw new GraphQLError('No active student selected', {
+      if (!(await managesStudent(ctx.prisma, caller.userId, studentId))) {
+        throw new GraphQLError('You do not manage this student', {
           extensions: { code: 'FORBIDDEN' },
         });
       }
 
       try {
-        return await getMySessionFeedback(ctx.prisma, caller.activeStudentId, args.sessionId);
+        return await getNonDraftStudentSessionFeedback(ctx.prisma, studentId, args.sessionId);
       } catch (error) {
         if (error instanceof SessionNotFoundError) {
           throw new GraphQLError('Session not found', {
@@ -116,6 +98,27 @@ export const feedbackResolvers = {
 
         throw error;
       }
+    },
+
+    studentFeedback: async (
+      _parent: unknown,
+      args: StudentFeedbackArgs,
+      ctx: GraphQLContext
+    ): Promise<Feedback[]> => {
+      const caller = requireRole(ctx.auth, allRoles);
+      const studentId = validatePositiveInt(args.studentId, 'studentId');
+
+      if (caller.role !== Role.STUDENT) {
+        return listStudentFeedback(ctx.prisma, studentId);
+      }
+
+      if (!(await managesStudent(ctx.prisma, caller.userId, studentId))) {
+        throw new GraphQLError('You do not manage this student', {
+          extensions: { code: 'FORBIDDEN' },
+        });
+      }
+
+      return listNonDraftStudentFeedback(ctx.prisma, studentId);
     },
   },
 

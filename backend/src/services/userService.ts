@@ -112,6 +112,18 @@ export async function getManagedStudents(prisma: PrismaClient, userId: string): 
   });
 }
 
+export async function managesStudent(
+  prisma: PrismaClient,
+  userId: string,
+  studentId: number
+): Promise<boolean> {
+  const count = await prisma.student.count({
+    where: { membership_id: studentId, manager_id: userId },
+  });
+
+  return count > 0;
+}
+
 export async function getStudents(prisma: PrismaClient): Promise<Student[]> {
   return prisma.student.findMany({
     orderBy: { membership_id: 'asc' },

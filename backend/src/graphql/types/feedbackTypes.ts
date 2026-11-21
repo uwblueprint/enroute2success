@@ -26,14 +26,11 @@ export const feedbackTypeDefs = `#graphql
     "All feedback for a session. Staff only."
     sessionFeedback(sessionId: UUID!): [Feedback!]!
 
-    "Feedback for one student in a session, or null if none exists. Staff only."
+    "Feedback for one student in a session, or null if none exists. Staff can view any student; students and parents can only view students they manage, and get NOT_FOUND for draft sessions."
     studentSessionFeedback(studentId: Int!, sessionId: UUID!): Feedback
 
-    "All feedback for the active student. Students and parents only."
-    myFeedback: [Feedback!]!
-
-    "Feedback for the active student in a session, or null if none exists. Students and parents only."
-    mySessionFeedback(sessionId: UUID!): Feedback
+    "All feedback for a student, newest session first. Staff can view any student; students and parents can only view students they manage."
+    studentFeedback(studentId: Int!): [Feedback!]!
   }
 
   extend type Mutation {

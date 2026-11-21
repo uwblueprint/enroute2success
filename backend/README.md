@@ -484,14 +484,14 @@ the nullable `studentSessionFeedback` lookup returns `null` when queried on its 
 With a STUDENT token:
 
 ```graphql
-query StudentFeedback($sessionId: ID!) {
-  myFeedback {
+query StudentFeedback($studentId: Int!, $sessionId: UUID!) {
+  studentFeedback(studentId: $studentId) {
     id
     studentId
     sessionId
     text
   }
-  mySessionFeedback(sessionId: $sessionId) {
+  studentSessionFeedback(studentId: $studentId, sessionId: $sessionId) {
     id
     studentId
     text
@@ -500,13 +500,15 @@ query StudentFeedback($sessionId: ID!) {
 ```
 
 ```json
-{ "sessionId": "10000000-0000-4000-8000-000000000002" }
+{ "studentId": 900001, "sessionId": "10000000-0000-4000-8000-000000000002" }
 ```
 
-With A's token, expect only A's four entries, ordered Future, Today, Day 7, Day 8 by session date.
-The detail lookup returns A's Day 7 entry. With B's token, expect only B's Today entry and `null` for
-Day 7, even though A has feedback in that session. An absent session UUID makes `mySessionFeedback`
-return `NOT_FOUND`.
+Staff can query any student; a student or parent can only query students they manage. With the
+multi-parent token and `studentId` `900001`, expect only A's four entries, ordered Future, Today,
+Day 7, Day 8 by session date. The detail lookup returns A's Day 7 entry. With `studentId` `900002`,
+expect only B's Today entry and `null` for Day 7, even though A has feedback in that session. A
+`studentId` the caller doesn't manage, such as `900003`, returns `FORBIDDEN`. An absent session UUID
+makes `studentSessionFeedback` return `NOT_FOUND` for a student or parent, and `null` for staff.
 
 ## Feedback create checks
 
