@@ -54,6 +54,10 @@ export const userResolvers = {
 
     lastName: (user: UserWithStaff) => user.last_name,
 
+    preferredName: (user: UserWithStaff) => user.preferred_name,
+
+    phoneNumber: (user: UserWithStaff) => user.phone_number,
+
     role: (user: UserWithStaff) => user.staff?.role ?? PrismaRole.STUDENT,
 
     students: async (user: UserWithStaff, _args: unknown, ctx: GraphQLContext) => {

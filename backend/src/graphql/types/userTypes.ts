@@ -21,7 +21,9 @@ export const userTypeDefs = `#graphql
     id: UUID!
     firstName: String!
     lastName: String!
+    preferredName: String
     email: String!
+    phoneNumber: String!
     role: Role!
     students: [Student!]!
   }
