@@ -51,12 +51,21 @@ review there (redundant `session_id` index, `ID` vs `UUID` args, null vs `NOT_FO
 - [ ] **Only count sent points in `Student.points`.** The stack increments `Student.points` on
       `createSessionPoints` / `updateSessionPoints`, so draft points would show up in a student's
       total. Move the increment to the send step (and adjust it on edits to sent points).
-- [ ] **One save / one send for the whole student.** The page saves message, points and attachments
-      together, but the API has separate create/update mutations for feedback and points, so the
-      frontend has to know which rows exist and can half-save. Proposed:
-      `saveSessionReport(sessionId, studentId, text, points, attachments)` (upsert, draft) and
-      `sendSessionReport(sessionId, studentId)`, both in one transaction. Open question: can a coach
-      send points with an empty message? (`validateText` currently rejects empty feedback.)
+- [ ] **Merge feedback and points mutations into `saveSessionReport` / `sendSessionReport`.**
+      _Blocked: do after the points stack (#60–#66) merges._
+      The page saves and sends the message, points and attachments together, but the API has separate
+      create/update mutations for each, so the frontend has to know which rows exist and a failed
+      second request leaves a half-save.
+  - `saveSessionReport(sessionId, studentId, text, points, attachments)`: creates or updates the
+    feedback and points (as drafts if not yet sent) in one transaction.
+  - `sendSessionReport(sessionId, studentId)`: sets `sent_at` on both in one transaction, and adds the
+    points to `Student.points` (see the points total item above).
+  - Remove `createFeedback`, `updateFeedback`, `sendFeedback`, `createSessionPoints` and
+    `updateSessionPoints`. Keep the read queries.
+  - Make the stack's `sessionPointsService` functions accept a transaction client instead of the
+    global `prisma` so they can run in the same transaction as feedback.
+  - Open question: can a coach send points with an empty message? (`validateText` currently rejects
+    empty feedback.)
 - [ ] **Session roster with attendance.** The page lists the session's students (sorted by last name,
       with previous/next navigation) with Present/Absent status and counts, plus a "Feedback not sent"
       count. There is no enrollment or attendance table yet (see the `TODO`s in `feedbackService` and
