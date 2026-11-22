@@ -3,6 +3,7 @@ import { Role as PrismaRole } from '../../../generated/client';
 import type { Student } from '../../../generated/client';
 import type { GraphQLContext } from '../context';
 import {
+  AccountNotFoundError,
   completeAccountSetup,
   createManagedStudent,
   createStaffAccount,
@@ -12,6 +13,7 @@ import {
   getManagedStudents,
   getStudents,
   getUserWithStaff,
+  IncorrectPasswordError,
   loginStaff,
   loginStudent,
   persistActiveStudent,
@@ -40,6 +42,27 @@ import {
   validatePositiveInt,
   validateStudentInput,
 } from '../../utils/validation';
+
+function toLoginError(error: unknown, identifierField: 'email' | 'membershipId'): unknown {
+  if (error instanceof AccountNotFoundError) {
+    return new GraphQLError(error.message, {
+      extensions: { code: 'ACCOUNT_NOT_FOUND', field: identifierField },
+    });
+  }
+
+  if (error instanceof IncorrectPasswordError) {
+    return new GraphQLError(error.message, {
+      extensions: { code: 'INCORRECT_PASSWORD', field: 'password' },
+    });
+  }
+
+  return error;
+}
+
+const loginRetryError = () =>
+  new GraphQLError('Unable to log in. Please try again.', {
+    extensions: { code: 'UNAUTHENTICATED' },
+  });
 
 export const userResolvers = {
   Role: {
@@ -136,12 +159,16 @@ export const userResolvers = {
       const email = validateEmail(args.email);
       const password = validateLoginPassword(args.password);
 
-      const session = await loginStaff(ctx.prisma, email, password);
+      let session;
+
+      try {
+        session = await loginStaff(ctx.prisma, email, password);
+      } catch (error) {
+        throw toLoginError(error, 'email');
+      }
 
       if (!session) {
-        throw new GraphQLError('email or password is incorrect', {
-          extensions: { code: 'UNAUTHENTICATED' },
-        });
+        throw loginRetryError();
       }
 
       setRefreshTokenCookie(ctx.res, session.refreshToken, session.refreshTokenExpiresAt);
@@ -167,9 +194,7 @@ export const userResolvers = {
         const session = await loginStudent(ctx.prisma, input);
 
         if (!session) {
-          throw new GraphQLError('email, membership ID, or password is incorrect', {
-            extensions: { code: 'UNAUTHENTICATED' },
-          });
+          throw loginRetryError();
         }
 
         setRefreshTokenCookie(ctx.res, session.refreshToken, session.refreshTokenExpiresAt);
@@ -187,7 +212,7 @@ export const userResolvers = {
           });
         }
 
-        throw error;
+        throw toLoginError(error, input.email != null ? 'email' : 'membershipId');
       }
     },
 

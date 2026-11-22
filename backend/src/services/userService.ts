@@ -95,6 +95,20 @@ export class InvalidLoginInputError extends Error {
   }
 }
 
+export class AccountNotFoundError extends Error {
+  constructor() {
+    super('No account found with this email or membership ID');
+    this.name = 'AccountNotFoundError';
+  }
+}
+
+export class IncorrectPasswordError extends Error {
+  constructor() {
+    super('Password is incorrect');
+    this.name = 'IncorrectPasswordError';
+  }
+}
+
 export async function getUserWithStaff(
   prisma: PrismaClient,
   userId: string
@@ -198,16 +212,12 @@ async function loginAccount(
   portal: LoginPortal,
   membershipId?: number
 ): Promise<AuthSession | null> {
-  let passwordMatches = false;
-
-  if (user) {
-    passwordMatches = await verifyPassword(user.password_hash, password);
-  } else {
-    await hashPassword(password);
+  if (!user || !matchesLoginPortal(user, portal)) {
+    throw new AccountNotFoundError();
   }
 
-  if (!user || !passwordMatches || !matchesLoginPortal(user, portal)) {
-    return null;
+  if (!(await verifyPassword(user.password_hash, password))) {
+    throw new IncorrectPasswordError();
   }
 
   return prisma.$transaction(
