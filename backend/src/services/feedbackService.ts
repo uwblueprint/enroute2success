@@ -133,7 +133,6 @@ export async function listStudentFeedback(
   });
 }
 
-// What students and parents can see: sent feedback on sessions that aren't drafts.
 export async function listVisibleStudentFeedback(
   prisma: PrismaClient,
   studentId: number
@@ -144,7 +143,6 @@ export async function listVisibleStudentFeedback(
   });
 }
 
-// Throws SessionNotFoundError for draft sessions. Returns null if the feedback hasn't been sent.
 export async function getVisibleStudentSessionFeedback(
   prisma: PrismaClient,
   studentId: number,
@@ -251,8 +249,6 @@ export async function updateFeedback(
   }
 }
 
-// Makes draft feedback visible to the student and their parents. Sending feedback that was
-// already sent returns it unchanged, keeping the original sent_at.
 export async function sendFeedback(
   prisma: PrismaClient,
   id: string,
