@@ -372,15 +372,17 @@ the Toronto calendar date changes before your timing checks.
 | Future        | `10000000-0000-4000-8000-000000000004` | Tomorrow                     |
 | Today (empty) | `10000000-0000-4000-8000-000000000005` | Today; initially no feedback |
 
-| Feedback UUID                          | Student | Session | Original author |
-| -------------------------------------- | ------- | ------- | --------------- |
-| `20000000-0000-4000-8000-000000000001` | A       | Today   | Coach           |
-| `20000000-0000-4000-8000-000000000002` | B       | Today   | Admin           |
-| `20000000-0000-4000-8000-000000000003` | A       | Day 7   | Coach           |
-| `20000000-0000-4000-8000-000000000004` | A       | Day 8   | Admin           |
-| `20000000-0000-4000-8000-000000000005` | A       | Future  | Admin           |
+| Feedback UUID                          | Student | Session | Original author | Sent       |
+| -------------------------------------- | ------- | ------- | --------------- | ---------- |
+| `20000000-0000-4000-8000-000000000001` | A       | Today   | Coach           | Yes        |
+| `20000000-0000-4000-8000-000000000002` | B       | Today   | Admin           | No (draft) |
+| `20000000-0000-4000-8000-000000000003` | A       | Day 7   | Coach           | Yes        |
+| `20000000-0000-4000-8000-000000000004` | A       | Day 8   | Admin           | Yes        |
+| `20000000-0000-4000-8000-000000000005` | A       | Future  | Admin           | Yes        |
 
-Every seeded entry initially has `updated_by = giver` and `updated_at = created_at`. The Today entry for
+Every seeded entry initially has `updated_by = giver` and `updated_at = created_at`. Sent entries have
+`sent_at = created_at`. B's Today entry is an unsent draft: staff can see it, but the parent and student
+can't until `sendFeedback` is called. The Today entry for
 A has an earlier creation timestamp than B's entry, regardless of insertion ordering. Old and future
 entries are inserted directly by the seed to make both permitted and forbidden update cases available.
 

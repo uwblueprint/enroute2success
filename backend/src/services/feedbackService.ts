@@ -133,17 +133,19 @@ export async function listStudentFeedback(
   });
 }
 
-export async function listNonDraftStudentFeedback(
+// What students and parents can see: sent feedback on sessions that aren't drafts.
+export async function listVisibleStudentFeedback(
   prisma: PrismaClient,
   studentId: number
 ): Promise<Feedback[]> {
   return prisma.feedback.findMany({
-    where: { receiver: studentId, session: { status: { not: 'draft' } } },
+    where: { receiver: studentId, sent_at: { not: null }, session: { status: { not: 'draft' } } },
     orderBy: { session: { start_datetime: 'desc' } },
   });
 }
 
-export async function getNonDraftStudentSessionFeedback(
+// Throws SessionNotFoundError for draft sessions. Returns null if the feedback hasn't been sent.
+export async function getVisibleStudentSessionFeedback(
   prisma: PrismaClient,
   studentId: number,
   sessionId: string
@@ -157,7 +159,9 @@ export async function getNonDraftStudentSessionFeedback(
     throw new SessionNotFoundError();
   }
 
-  return getStudentSessionFeedback(prisma, studentId, sessionId);
+  const feedback = await getStudentSessionFeedback(prisma, studentId, sessionId);
+
+  return feedback?.sent_at ? feedback : null;
 }
 
 export async function createFeedback(
@@ -245,4 +249,43 @@ export async function updateFeedback(
 
     throw error;
   }
+}
+
+// Makes draft feedback visible to the student and their parents. Sending feedback that was
+// already sent returns it unchanged, keeping the original sent_at.
+export async function sendFeedback(
+  prisma: PrismaClient,
+  id: string,
+  role: Role
+): Promise<Feedback> {
+  const feedback = await prisma.feedback.findUnique({
+    where: { id },
+    include: { session: { select: { start_datetime: true } } },
+  });
+
+  if (!feedback) {
+    throw new FeedbackNotFoundError();
+  }
+
+  const { session, ...current } = feedback;
+
+  if (current.sent_at) {
+    return current;
+  }
+
+  assertFeedbackEditWindow(role, session.start_datetime);
+
+  // Only set sent_at if it's still null, so two concurrent sends keep the first timestamp.
+  await prisma.feedback.updateMany({
+    where: { id, sent_at: null },
+    data: { sent_at: new Date() },
+  });
+
+  const sent = await prisma.feedback.findUnique({ where: { id } });
+
+  if (!sent) {
+    throw new FeedbackNotFoundError();
+  }
+
+  return sent;
 }

@@ -7,11 +7,12 @@ import {
   FeedbackAlreadyExistsError,
   FeedbackEditWindowError,
   FeedbackNotFoundError,
-  getNonDraftStudentSessionFeedback,
+  getVisibleStudentSessionFeedback,
   getStudentSessionFeedback,
   listSessionFeedback,
-  listNonDraftStudentFeedback,
+  listVisibleStudentFeedback,
   listStudentFeedback,
+  sendFeedback,
   SessionNotFoundError,
   StudentNotFoundError,
   updateFeedback,
@@ -88,7 +89,7 @@ export const feedbackResolvers = {
       }
 
       try {
-        return await getNonDraftStudentSessionFeedback(ctx.prisma, studentId, args.sessionId);
+        return await getVisibleStudentSessionFeedback(ctx.prisma, studentId, args.sessionId);
       } catch (error) {
         if (error instanceof SessionNotFoundError) {
           throw new GraphQLError('Session not found', {
@@ -118,7 +119,7 @@ export const feedbackResolvers = {
         });
       }
 
-      return listNonDraftStudentFeedback(ctx.prisma, studentId);
+      return listVisibleStudentFeedback(ctx.prisma, studentId);
     },
   },
 
@@ -198,9 +199,36 @@ export const feedbackResolvers = {
         throw error;
       }
     },
+
+    sendFeedback: async (
+      _parent: unknown,
+      args: { id: string },
+      ctx: GraphQLContext
+    ): Promise<Feedback> => {
+      const caller = requireRole(ctx.auth, staffRoles);
+
+      try {
+        return await sendFeedback(ctx.prisma, args.id, caller.role);
+      } catch (error) {
+        if (error instanceof FeedbackNotFoundError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'NOT_FOUND', id: args.id },
+          });
+        }
+
+        if (error instanceof FeedbackEditWindowError) {
+          throw new GraphQLError(error.message, {
+            extensions: { code: 'FORBIDDEN' },
+          });
+        }
+
+        throw error;
+      }
+    },
   },
 
   Feedback: {
+    sentAt: (feedback: Feedback) => feedback.sent_at?.toISOString() ?? null,
     studentId: (feedback: Feedback) => feedback.receiver,
     giverId: (feedback: Feedback) => feedback.giver,
     updatedById: (feedback: Feedback) => feedback.updated_by,

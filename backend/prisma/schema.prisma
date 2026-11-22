@@ -154,14 +154,17 @@ model StaffUsers {
 }
 
 model Feedback {
-  id         String   @id @default(uuid()) @db.Uuid
+  id         String    @id @default(uuid()) @db.Uuid
   receiver   Int
-  giver      String   @db.Uuid
-  updated_by String   @db.Uuid
-  session_id String   @db.Uuid
+  giver      String    @db.Uuid
+  updated_by String    @db.Uuid
+  session_id String    @db.Uuid
   text       String
-  created_at DateTime @default(now()) @db.Timestamp(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamp(6)
+  // Null while the feedback is a draft. Set once when it is first sent; later edits are visible
+  // to students and parents as soon as they're saved, without changing sent_at.
+  sent_at    DateTime? @db.Timestamp(6)
+  created_at DateTime  @default(now()) @db.Timestamp(6)
+  updated_at DateTime  @default(now()) @updatedAt @db.Timestamp(6)
 
   student Student    @relation(fields: [receiver], references: [membership_id])
   author  StaffUsers @relation("FeedbackGiver", fields: [giver], references: [id])
@@ -175,15 +178,15 @@ model Feedback {
 }
 
 model refresh_tokens {
-  id         String    @id @default(uuid()) @db.Uuid
-  user_id    String    @db.Uuid
-  token_hash String    @unique @db.VarChar
-  expires_at DateTime  @db.Timestamp(3)
-  revoked_at DateTime? @db.Timestamp(3)
+  id                String    @id @default(uuid()) @db.Uuid
+  user_id           String    @db.Uuid
+  token_hash        String    @unique @db.VarChar
+  expires_at        DateTime  @db.Timestamp(3)
+  revoked_at        DateTime? @db.Timestamp(3)
   // Membership ID of the student this session has selected; carried across rotations.
   active_student_id Int?
-  created_at DateTime  @default(now())
-  updated_at DateTime  @updatedAt
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
 
   user User @relation(fields: [user_id], references: [id])
 }

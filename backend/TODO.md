@@ -43,11 +43,11 @@ attachments, ticks point criteria, then either **Save changes** (draft) or **Sen
 review there (redundant `session_id` index, `ID` vs `UUID` args, null vs `NOT_FOUND` consistency,
 0–1 score limit) are not repeated here.
 
-- [ ] **Draft vs. sent state.** Neither `Feedback` nor `SessionPoints` knows whether it's been sent,
-      so students see feedback as soon as it's created (and points even for draft sessions, which
-      `myPoints` / `mySessionPoints` don't filter, unlike the feedback queries). Add a `sent_at`
-      (null = draft), expose `sentAt` for the "Saved …" / "Sent …" labels, and only show sent rows to
-      students and parents.
+- [ ] **Draft vs. sent state for points.** Feedback has this now (see **Done**). `SessionPoints` still
+      needs the same `sent_at`: students currently see points as soon as they're created, even for
+      draft sessions, since `myPoints` / `mySessionPoints` don't filter those out like the feedback
+      queries do. Once sent, edits should be visible as soon as they're saved, without changing
+      `sent_at`.
 - [ ] **Only count sent points in `Student.points`.** The stack increments `Student.points` on
       `createSessionPoints` / `updateSessionPoints`, so draft points would show up in a student's
       total. Move the increment to the send step (and adjust it on edits to sent points).
@@ -77,6 +77,10 @@ review there (redundant `session_id` index, `ID` vs `UUID` args, null vs `NOT_FO
       Low priority (placeholder works).
 
 ## Done
+
+- [x] **Draft vs. sent feedback.** `Feedback` has a nullable `sent_at` (exposed as `sentAt`) and a
+      `sendFeedback(id)` mutation. Students and parents only see sent feedback; edits after sending
+      are visible right away and keep the original `sent_at`.
 
 - [x] **Field-specific login errors.** `loginStaff` and `loginStudent` now return
       `ACCOUNT_NOT_FOUND` (`field`: `email` or `membershipId`) or `INCORRECT_PASSWORD`
