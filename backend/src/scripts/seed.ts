@@ -671,6 +671,7 @@ async function seedFeedback(tx: Prisma.TransactionClient): Promise<void> {
     })),
   });
 
+  const DRAFT_FEEDBACK_ID = '20000000-0000-4000-8000-000000000002';
   const feedbackFixtures = [
     {
       id: '20000000-0000-4000-8000-000000000001',
@@ -715,6 +716,8 @@ async function seedFeedback(tx: Prisma.TransactionClient): Promise<void> {
       return {
         ...feedback,
         updated_by: feedback.giver,
+        // Leave one entry as an unsent draft so draft visibility can be checked.
+        sent_at: feedback.id === DRAFT_FEEDBACK_ID ? null : createdAt,
         created_at: createdAt,
         updated_at: createdAt,
       };
@@ -752,7 +755,7 @@ async function main(): Promise<void> {
     { timeout: 15_000 }
   );
   console.log(
-    '✅ Feedback fixtures ready: multi-parent students 900001/900002, 5 sessions, and 5 feedback entries.'
+    '✅ Feedback fixtures ready: multi-parent students 900001/900002, 5 sessions, and 5 feedback entries (1 unsent draft).'
   );
 }
 

@@ -43,20 +43,29 @@ attachments, ticks point criteria, then either **Save changes** (draft) or **Sen
 review there (redundant `session_id` index, `ID` vs `UUID` args, null vs `NOT_FOUND` consistency,
 0–1 score limit) are not repeated here.
 
-- [ ] **Draft vs. sent state.** Neither `Feedback` nor `SessionPoints` knows whether it's been sent,
-      so students see feedback as soon as it's created (and points even for draft sessions, which
-      `myPoints` / `mySessionPoints` don't filter, unlike the feedback queries). Add a `sent_at`
-      (null = draft), expose `sentAt` for the "Saved …" / "Sent …" labels, and only show sent rows to
-      students and parents.
+- [ ] **Draft vs. sent state for points.** Feedback has this now (see **Done**). `SessionPoints` still
+      needs the same `sent_at`: students currently see points as soon as they're created, even for
+      draft sessions, since `myPoints` / `mySessionPoints` don't filter those out like the feedback
+      queries do. Once sent, edits should be visible as soon as they're saved, without changing
+      `sent_at`.
 - [ ] **Only count sent points in `Student.points`.** The stack increments `Student.points` on
       `createSessionPoints` / `updateSessionPoints`, so draft points would show up in a student's
       total. Move the increment to the send step (and adjust it on edits to sent points).
-- [ ] **One save / one send for the whole student.** The page saves message, points and attachments
-      together, but the API has separate create/update mutations for feedback and points, so the
-      frontend has to know which rows exist and can half-save. Proposed:
-      `saveSessionReport(sessionId, studentId, text, points, attachments)` (upsert, draft) and
-      `sendSessionReport(sessionId, studentId)`, both in one transaction. Open question: can a coach
-      send points with an empty message? (`validateText` currently rejects empty feedback.)
+- [ ] **Merge feedback and points mutations into `saveSessionReport` / `sendSessionReport`.**
+      _Blocked: do after the points stack (#60–#66) merges._
+      The page saves and sends the message, points and attachments together, but the API has separate
+      create/update mutations for each, so the frontend has to know which rows exist and a failed
+      second request leaves a half-save.
+  - `saveSessionReport(sessionId, studentId, text, points, attachments)`: creates or updates the
+    feedback and points (as drafts if not yet sent) in one transaction.
+  - `sendSessionReport(sessionId, studentId)`: sets `sent_at` on both in one transaction, and adds the
+    points to `Student.points` (see the points total item above).
+  - Remove `createFeedback`, `updateFeedback`, `sendFeedback`, `createSessionPoints` and
+    `updateSessionPoints`. Keep the read queries.
+  - Make the stack's `sessionPointsService` functions accept a transaction client instead of the
+    global `prisma` so they can run in the same transaction as feedback.
+  - Open question: can a coach send points with an empty message? (`validateText` currently rejects
+    empty feedback.)
 - [ ] **Session roster with attendance.** The page lists the session's students (sorted by last name,
       with previous/next navigation) with Present/Absent status and counts, plus a "Feedback not sent"
       count. There is no enrollment or attendance table yet (see the `TODO`s in `feedbackService` and
@@ -77,6 +86,10 @@ review there (redundant `session_id` index, `ID` vs `UUID` args, null vs `NOT_FO
       Low priority (placeholder works).
 
 ## Done
+
+- [x] **Draft vs. sent feedback.** `Feedback` has a nullable `sent_at` (exposed as `sentAt`) and a
+      `sendFeedback(id)` mutation. Students and parents only see sent feedback; edits after sending
+      are visible right away and keep the original `sent_at`.
 
 - [x] **Field-specific login errors.** `loginStaff` and `loginStudent` now return
       `ACCOUNT_NOT_FOUND` (`field`: `email` or `membershipId`) or `INCORRECT_PASSWORD`
