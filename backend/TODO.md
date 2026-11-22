@@ -35,6 +35,47 @@ they merge.
     afterwards.
   - `changePassword(currentPassword: String!, newPassword: String!)` for logged-in users.
 
+## Feedback & points (coach portal)
+
+Design: one page per session where a coach goes student by student, writes a message, adds
+attachments, ticks point criteria, then either **Save changes** (draft) or **Send Points & Feedback**
+(visible to the student and parents). Points are in the open stack #60–#66; issues already raised in
+review there (redundant `session_id` index, `ID` vs `UUID` args, null vs `NOT_FOUND` consistency,
+0–1 score limit) are not repeated here.
+
+- [ ] **Draft vs. sent state.** Neither `Feedback` nor `SessionPoints` knows whether it's been sent,
+      so students see feedback as soon as it's created (and points even for draft sessions, which
+      `myPoints` / `mySessionPoints` don't filter, unlike the feedback queries). Add a `sent_at`
+      (null = draft), expose `sentAt` for the "Saved …" / "Sent …" labels, and only show sent rows to
+      students and parents.
+- [ ] **Only count sent points in `Student.points`.** The stack increments `Student.points` on
+      `createSessionPoints` / `updateSessionPoints`, so draft points would show up in a student's
+      total. Move the increment to the send step (and adjust it on edits to sent points).
+- [ ] **One save / one send for the whole student.** The page saves message, points and attachments
+      together, but the API has separate create/update mutations for feedback and points, so the
+      frontend has to know which rows exist and can half-save. Proposed:
+      `saveSessionReport(sessionId, studentId, text, points, attachments)` (upsert, draft) and
+      `sendSessionReport(sessionId, studentId)`, both in one transaction. Open question: can a coach
+      send points with an empty message? (`validateText` currently rejects empty feedback.)
+- [ ] **Session roster with attendance.** The page lists the session's students (sorted by last name,
+      with previous/next navigation) with Present/Absent status and counts, plus a "Feedback not sent"
+      count. There is no enrollment or attendance table yet (see the `TODO`s in `feedbackService` and
+      `sessionPointsService`). Needs something like
+      `sessionRoster(sessionId): [{ student, attendance, feedbackSentAt }]`. Depends on the Attendance
+      flow design.
+- [ ] **`editableUntil` on `Session`.** Header shows "Editable until Nov 5". Expose the end of the
+      7-day window from `isWithinSessionEditWindow` (stack #63) so the frontend doesn't redo the
+      timezone math.
+- [ ] **"Live" session status.** Header shows a Live badge; `SessionStatus` only has
+      draft/scheduled/cancelled. Either derive it on the frontend from start/end times or add a
+      computed field.
+- [ ] **Feedback attachments (files team).** Coaches attach uploaded files (e.g. a 112 MB `.mp4`) and
+      web links to a student's feedback. `File` has no link to feedback/session, and there's no link
+      attachment type. Needs a feedback ↔ attachment relation (file or URL) and to follow the
+      draft/sent visibility rules.
+- [ ] **Student avatar.** Design shows a profile picture per student; `Student` has no image field.
+      Low priority (placeholder works).
+
 ## Done
 
 - [x] **Field-specific login errors.** `loginStaff` and `loginStudent` now return
