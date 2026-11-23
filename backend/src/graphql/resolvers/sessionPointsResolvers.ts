@@ -133,7 +133,6 @@ export const sessionPointsResolvers = {
     ): Promise<SessionPoints> => {
       const caller = requireRole(ctx.auth, staffRoles);
       const { studentId, sessionId, categories } = args.input;
-      validateSessionId(sessionId);
 
       for (const [field, score] of Object.entries(categories)) {
         if (!Number.isInteger(score) || score < 0 || score > 10) {
