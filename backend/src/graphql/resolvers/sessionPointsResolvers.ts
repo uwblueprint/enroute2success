@@ -135,8 +135,8 @@ export const sessionPointsResolvers = {
       const { studentId, sessionId, categories } = args.input;
 
       for (const [field, score] of Object.entries(categories)) {
-        if (!Number.isInteger(score) || score < 0 || score > 10) {
-          throw new GraphQLError(`${field} must be an integer from 0 to 10`, {
+        if (!Number.isInteger(score) || score < 0 || score > 1) {
+          throw new GraphQLError(`${field} must be an integer from 0 to 1`, {
             extensions: { code: 'BAD_USER_INPUT', field },
           });
         }
