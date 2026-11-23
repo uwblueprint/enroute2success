@@ -100,8 +100,6 @@ export const sessionPointsResolvers = {
         });
       }
 
-      validateSessionId(args.sessionId);
-
       try {
         return await getMySessionPoints(ctx.prisma, caller.activeStudentId, args.sessionId);
       } catch (error) {
