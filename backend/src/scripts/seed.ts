@@ -16,7 +16,7 @@
  *
  * Feedback fixtures attach to the multi-parent account's students (900001, 900002),
  * which the auth fixtures create.
- * A full seed replaces feedback, sessions, series, and announcements in one transaction.
+ * A full seed replaces session points, feedback, sessions, series, and announcements in one transaction.
  * Fixture coverage (maps to the testing checklist):
  *  - Sessions with AND without `max_attendees`.
  *  - One `draft` and one `cancelled` session.
@@ -27,6 +27,7 @@
  *  - Feedback for the multi-parent account's two students (900001, 900002), with
  *    different staff authors.
  *  - Sessions today, 7 days ago, 8 days ago, tomorrow, and an empty session.
+ *  - Points for student 900001 in Today and Day 7, using 0 or 1 per category.
  *
  * Announcements: wipes existing announcements and inserts one fixture per
  * query bucket (live, upcoming, expired, soft-deleted), created by the seeded
@@ -748,8 +749,8 @@ async function clearSessionPoints(tx: Prisma.TransactionClient): Promise<void> {
   await tx.sessionPoints.deleteMany({});
 }
 
-async function seedSessionPoints(tx: Prisma.TransactionClient): Promise<void> {
-  await tx.sessionPoints.createMany({
+async function seedSessionPoints(tx: Prisma.TransactionClient) {
+  const rows = await tx.sessionPoints.createManyAndReturn({
     data: [
       {
         id: '30000000-0000-4000-8000-000000000001',
@@ -757,16 +758,16 @@ async function seedSessionPoints(tx: Prisma.TransactionClient): Promise<void> {
         membership_id: POINTS_STUDENT_ID,
         given_by: COACH_ID,
         updated_by: COACH_ID,
-        attendance: 5,
+        attendance: 1,
         punctuality: 1,
-        teamwork: 2,
+        teamwork: 1,
         focus: 1,
-        discipline: 1,
+        discipline: 0,
         respect: 1,
         sportsmanship: 1,
-        extra_recognition: 1,
+        extra_recognition: 0,
         attended_workshop: 1,
-        won_tournament: 1,
+        won_tournament: 0,
       },
       {
         id: '30000000-0000-4000-8000-000000000002',
@@ -774,15 +775,20 @@ async function seedSessionPoints(tx: Prisma.TransactionClient): Promise<void> {
         membership_id: POINTS_STUDENT_ID,
         given_by: ADMIN_ID,
         updated_by: ADMIN_ID,
-        attendance: 10,
+        attendance: 1,
+        discipline: 1,
+        extra_recognition: 1,
+        won_tournament: 1,
       },
     ],
   });
 
+  const points = rows.reduce((total, row) => total + sumSessionPoints(row), 0);
   await tx.student.update({
     where: { membership_id: POINTS_STUDENT_ID },
-    data: { points: 25 },
+    data: { points },
   });
+  return { rowCount: rows.length, points };
 }
 
 async function main(): Promise<void> {
@@ -796,13 +802,11 @@ async function main(): Promise<void> {
   await seedAuthFixtures(args.includes('--reset-auth'));
 
   if (args.includes('--auth-only')) {
-    console.log(
-      'Auth-only seed complete. Existing session points, student totals, feedback, sessions, session series, and announcements were preserved.'
-    );
+    console.log('Auth-only seed complete.');
     return;
   }
 
-  await prisma.$transaction(
+  const { rowCount, points } = await prisma.$transaction(
     async (tx) => {
       await clearSessionPoints(tx);
       // Feedback and points must be removed before sessions because their FKs use Restrict.
@@ -811,15 +815,18 @@ async function main(): Promise<void> {
       await tx.session_series.deleteMany({});
       await seedSessions(tx);
       await seedFeedback(tx);
-      await seedSessionPoints(tx);
+      const sessionPoints = await seedSessionPoints(tx);
       await seedAnnouncements(tx);
+      return sessionPoints;
     },
     { isolationLevel: 'ReadCommitted', timeout: 15_000 }
   );
   console.log(
     '✅ Feedback fixtures ready: multi-parent students 900001/900002, 5 sessions, and 5 feedback entries (1 unsent draft).'
   );
-  console.log('✅ Session points fixtures ready: student 900001, 2 rows, and 25 points.');
+  console.log(
+    `✅ Session points fixtures ready: student ${POINTS_STUDENT_ID}, ${rowCount} rows, and ${points} points.`
+  );
 }
 
 main()
