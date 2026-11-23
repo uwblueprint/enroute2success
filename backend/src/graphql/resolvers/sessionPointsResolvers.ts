@@ -17,16 +17,6 @@ type StudentSessionPointsArgs = SessionPointsArgs & {
   studentId: number;
 };
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function validateSessionId(sessionId: string): void {
-  if (!UUID_PATTERN.test(sessionId)) {
-    throw new GraphQLError('sessionId must be a valid UUID', {
-      extensions: { code: 'BAD_USER_INPUT', field: 'sessionId' },
-    });
-  }
-}
-
 export const sessionPointsResolvers = {
   Query: {
     sessionPointsForSession: async (
@@ -35,7 +25,6 @@ export const sessionPointsResolvers = {
       ctx: GraphQLContext
     ): Promise<SessionPoints[]> => {
       requireRole(ctx.auth, staffRoles);
-      validateSessionId(args.sessionId);
 
       try {
         return await listSessionPoints(ctx.prisma, args.sessionId);
@@ -56,7 +45,6 @@ export const sessionPointsResolvers = {
       ctx: GraphQLContext
     ): Promise<SessionPoints | null> => {
       requireRole(ctx.auth, staffRoles);
-      validateSessionId(args.sessionId);
 
       return getStudentSessionPoints(ctx.prisma, args.studentId, args.sessionId);
     },

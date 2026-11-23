@@ -24,9 +24,9 @@ export const sessionPointsTypeDefs = `#graphql
 
   extend type Query {
     "All points rows for a session in creation order. Staff only."
-    sessionPointsForSession(sessionId: ID!): [SessionPoints!]!
+    sessionPointsForSession(sessionId: UUID!): [SessionPoints!]!
 
     "Points for one student in a session, or null if no row exists. Staff only."
-    studentSessionPoints(studentId: Int!, sessionId: ID!): SessionPoints
+    studentSessionPoints(studentId: Int!, sessionId: UUID!): SessionPoints
   }
 `;
