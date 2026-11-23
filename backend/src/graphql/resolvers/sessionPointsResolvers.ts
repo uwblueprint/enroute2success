@@ -46,7 +46,26 @@ export const sessionPointsResolvers = {
     ): Promise<SessionPoints | null> => {
       requireRole(ctx.auth, staffRoles);
 
-      return getStudentSessionPoints(ctx.prisma, args.studentId, args.sessionId);
+      const { sessionId, studentId } = args;
+      const points = await getStudentSessionPoints(ctx.prisma, studentId, sessionId);
+      if (points) {
+        return points;
+      }
+
+      const [sessionCount, studentCount] = await Promise.all([
+        ctx.prisma.session.count({ where: { id: sessionId } }),
+        ctx.prisma.student.count({ where: { membership_id: studentId } }),
+      ]);
+
+      if (sessionCount && studentCount) {
+        return null;
+      }
+
+      const { name, id } =
+        sessionCount === 0
+          ? { name: 'Session', id: sessionId }
+          : { name: 'Student', id: studentId };
+      throw new GraphQLError(`${name} not found`, { extensions: { code: 'NOT_FOUND', id } });
     },
   },
 

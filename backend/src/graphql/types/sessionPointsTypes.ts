@@ -26,7 +26,7 @@ export const sessionPointsTypeDefs = `#graphql
     "All points rows for a session in creation order. Staff only."
     sessionPointsForSession(sessionId: UUID!): [SessionPoints!]!
 
-    "Points for one student in a session, or null if no row exists. Staff only."
+    "Points for one student in a session, or null if no row exists. Returns NOT_FOUND if the session or student does not exist. Staff only."
     studentSessionPoints(studentId: Int!, sessionId: UUID!): SessionPoints
   }
 `;
