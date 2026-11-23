@@ -117,7 +117,6 @@ model Student {
   updated_at     DateTime @default(now()) @updatedAt @db.Timestamp(6)
 
   manager            User?               @relation(fields: [manager_id], references: [id], onDelete: SetNull)
-  accountSetupTokens AccountSetupToken[]
   feedback           Feedback[]
   session_points     SessionPoints[]
   fileRecipients FileRecipient[]
@@ -207,7 +206,6 @@ model SessionPoints {
   updater StaffUsers @relation("SessionPointsUpdater", fields: [updated_by], references: [id])
 
   @@unique([session_id, membership_id])
-  @@index([session_id])
   @@index([membership_id])
   @@map("session_points")
 }
