@@ -52,6 +52,7 @@ model session {
 
   session_series session_series? @relation(fields: [session_series_id], references: [id])
   feedback       Feedback[]
+  session_points SessionPoints[]
 
   @@index([start_datetime])
   @@map("session")
@@ -115,8 +116,9 @@ model Student {
   created_at     DateTime @default(now()) @db.Timestamp(6)
   updated_at     DateTime @default(now()) @updatedAt @db.Timestamp(6)
 
-  manager        User?           @relation(fields: [manager_id], references: [id], onDelete: SetNull)
-  feedback       Feedback[]
+  manager            User?               @relation(fields: [manager_id], references: [id], onDelete: SetNull)
+  feedback           Feedback[]
+  session_points     SessionPoints[]
   fileRecipients FileRecipient[]
 
   @@index([manager_id])
@@ -147,6 +149,9 @@ model StaffUsers {
   feedback_given   Feedback[] @relation("FeedbackGiver")
   feedback_updated Feedback[] @relation("FeedbackUpdater")
 
+  session_points_given   SessionPoints[] @relation("SessionPointsGiver")
+  session_points_updated SessionPoints[] @relation("SessionPointsUpdater")
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -174,6 +179,35 @@ model Feedback {
   @@index([session_id])
   @@index([receiver])
   @@map("feedback_log")
+}
+
+model SessionPoints {
+  id                String   @id @default(uuid()) @db.Uuid
+  session_id        String   @db.Uuid
+  membership_id     Int
+  attendance        Int      @default(0)
+  punctuality       Int      @default(0)
+  teamwork          Int      @default(0)
+  focus             Int      @default(0)
+  discipline        Int      @default(0)
+  respect           Int      @default(0)
+  sportsmanship     Int      @default(0)
+  extra_recognition Int      @default(0)
+  attended_workshop Int      @default(0)
+  won_tournament    Int      @default(0)
+  given_by          String   @db.Uuid
+  updated_by        String   @db.Uuid
+  created_at        DateTime @default(now()) @db.Timestamp(6)
+  updated_at        DateTime @updatedAt @db.Timestamp(6)
+
+  session session    @relation(fields: [session_id], references: [id], onDelete: Restrict)
+  student Student    @relation(fields: [membership_id], references: [membership_id], onDelete: Cascade)
+  author  StaffUsers @relation("SessionPointsGiver", fields: [given_by], references: [id])
+  updater StaffUsers @relation("SessionPointsUpdater", fields: [updated_by], references: [id])
+
+  @@unique([session_id, membership_id])
+  @@index([membership_id])
+  @@map("session_points")
 }
 
 model refresh_tokens {
