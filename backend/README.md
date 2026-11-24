@@ -349,7 +349,7 @@ the local calendar date changes before your timing checks.
 
 Every seeded entry initially has `updated_by = giver` and `updated_at = created_at`. Sent entries have
 `sent_at = created_at`. B's Today entry is an unsent draft: staff can see it, but the parent and student
-can't until `sendFeedback` is called. The Today entry for
+can't until the report is sent with `sendSessionReport`. The Today entry for
 A has an earlier creation timestamp than B's entry, regardless of insertion ordering. Old and future
 entries are inserted directly by the seed to make both permitted and forbidden update cases available.
 
@@ -479,126 +479,21 @@ the list is empty and Today and Day 7 details are `null`. B's Today entry is sti
 `studentId` the caller doesn't manage, such as `900003`, returns `FORBIDDEN`. An absent session UUID
 makes `studentSessionFeedback` return `NOT_FOUND` for a student or parent, and `null` for staff.
 
-### Send a draft
-
-Run this with a staff token and B's Today feedback ID `20000000-0000-4000-8000-000000000002`.
-
-```graphql
-mutation SendFeedback($id: UUID!) {
-  sendFeedback(id: $id) {
-    id
-    sentAt
-  }
-}
-```
-
-The draft gets a `sentAt` timestamp. B's Today entry now appears for the parent and student. Sending
-it again returns the original timestamp.
-
-## Feedback create checks
-
-Use a coach token and the initially empty Today session:
-
-```graphql
-mutation CreateFeedback($input: CreateFeedbackInput!) {
-  createFeedback(input: $input) {
-    id
-    studentId
-    sessionId
-    giverId
-    updatedById
-    text
-    createdAt
-    updatedAt
-  }
-}
-```
-
-```json
-{
-  "input": {
-    "studentId": 900001,
-    "sessionId": "10000000-0000-4000-8000-000000000005",
-    "text": "  Local feedback check  "
-  }
-}
-```
-
-Expect one new entry with text `Local feedback check` and both staff IDs equal to the coach's ID.
-Repeat the request to get `BAD_USER_INPUT`, with a message directing you to `updateFeedback`.
-Substitute an absent student ID or session UUID to get `NOT_FOUND`. For an absent UUID you can use
-`ffffffff-ffff-4fff-8fff-ffffffffffff`, which the seed does not create.
-
-## Feedback update checks
-
-Log in as the volunteer and edit the coach-authored Today entry:
-
-```graphql
-mutation UpdateFeedback($id: UUID!, $input: UpdateFeedbackInput!) {
-  updateFeedback(id: $id, input: $input) {
-    id
-    studentId
-    sessionId
-    giverId
-    updatedById
-    text
-    createdAt
-    updatedAt
-  }
-}
-```
-
-```json
-{
-  "id": "20000000-0000-4000-8000-000000000001",
-  "input": { "text": "  Reviewed by volunteer  " }
-}
-```
-
-Expect the same feedback ID, student, session, original coach `giverId`, and `createdAt`. The text
-becomes `Reviewed by volunteer`, `updatedById` becomes the volunteer's ID, and `updatedAt` advances.
-Rerun the staff read to confirm the session still has two entries. Updating an absent feedback UUID
-returns `NOT_FOUND`.
-
-## Feedback role, validation, and timing checklist
-
-Check `errors[].extensions.code` for failures. These operations are manual checks; the seed does not
-mark them as passed. Reseed between independent successful create scenarios so an existing pair does
-not turn a timing check into a duplicate check. For timing creates, use B (`900002`), whose Day 7,
-Day 8, and Future pairs are initially empty. For timing updates, use A's seeded entries above.
-
-| Request                                                        | Expected result                |
-| -------------------------------------------------------------- | ------------------------------ |
-| Any feedback query or mutation without Authorization           | `UNAUTHENTICATED`              |
-| STUDENT token calling `sessionFeedback` or a feedback mutation | `FORBIDDEN`                    |
-| Parent reads feedback for an unmanaged student                 | `FORBIDDEN`                    |
-| Create/update with `text` set to `"   "` using a staff token   | `BAD_USER_INPUT`, field `text` |
-| Coach creates/updates Today feedback                           | Success                        |
-| Volunteer creates/updates Today feedback                       | Success                        |
-| Admin creates/updates Today feedback                           | Success                        |
-| Coach creates/updates Day 7 feedback                           | Success                        |
-| Volunteer creates/updates Day 7 feedback                       | Success                        |
-| Coach creates/updates Day 8 feedback                           | `FORBIDDEN`                    |
-| Volunteer creates/updates Day 8 feedback                       | `FORBIDDEN`                    |
-| Coach/volunteer creates/updates Future feedback                | `FORBIDDEN`                    |
-| Admin creates/updates Day 8 or Future feedback                 | Success                        |
-
-Enrollment and staff-to-session assignment are still the ticket's explicit TODOs. Any existing student
-and session pair is currently accepted, subject to staff authorization, uniqueness, and timing rules.
-
 ## Session points fixtures
 
 A full seed adds two points rows for membership `900001`, managed by `parent.multi@e2s.test`. Each
 category is `0` or `1`. The rows reuse Today and Day 7 from the [feedback fixtures](#feedback-fixtures).
 
-| Session | Session UUID                           | Points row UUID                        | Row total | Giver and updater |
-| ------- | -------------------------------------- | -------------------------------------- | --------- | ----------------- |
-| Today   | `10000000-0000-4000-8000-000000000001` | `30000000-0000-4000-8000-000000000001` | 7         | Coach             |
-| Day 7   | `10000000-0000-4000-8000-000000000002` | `30000000-0000-4000-8000-000000000002` | 4         | Admin             |
+| Student | Session | Points row UUID                        | Row total | Giver and updater | Sent       |
+| ------- | ------- | -------------------------------------- | --------- | ----------------- | ---------- |
+| A       | Today   | `30000000-0000-4000-8000-000000000001` | 7         | Coach             | Yes        |
+| A       | Day 7   | `30000000-0000-4000-8000-000000000002` | 4         | Admin             | Yes        |
+| B       | Today   | `30000000-0000-4000-8000-000000000003` | 3         | Admin             | No (draft) |
 
-The full seed calculates `900001`'s profile total of 11 from these rows. Other students keep any
-points that came from outside the removed rows. A fresh auth-only seed gives `900001` the default
-of 0. Student `900002` starts with no points rows. Use that profile for mutation checks.
+Only sent rows count toward a profile's total, so the full seed gives `900001` a total of 11 and
+`900002` stays at 0. B's draft row pairs with B's draft Today feedback to make an unsent report.
+Other students keep any points that came from outside the removed rows. A fresh auth-only seed gives
+`900001` the default of 0.
 
 ## Manual session points checks
 
@@ -635,7 +530,8 @@ query StudentPoints($sessionId: UUID!) {
 }
 ```
 
-- With Today and `900001`, both staff fields show the 7-point row. An existing session with no
+- With Today and `900001`, the staff list shows A's 7-point row and B's 3-point draft, and the
+  detail shows A's row. An existing session with no
   rows gives `[]` for the list, and an existing student/session pair with no row gives `null` for the
   detail. Query the detail by itself with an unused session UUID or membership ID to get `NOT_FOUND`.
 - For active student `900001`, `myPoints` returns Today (7) before Day 7 (4). After selecting
@@ -645,40 +541,58 @@ query StudentPoints($sessionId: UUID!) {
 - Staff tokens get `FORBIDDEN` on student-only reads, and student tokens get `FORBIDDEN` on staff
   reads and mutations. Requests without a token get `UNAUTHENTICATED`.
 
-### Create and edit points
+## Save and send checks
+
+Coaches save and send a student's feedback and points together. Run the read checks above first,
+since these mutations change the fixtures.
 
 ```graphql
-mutation CreatePoints($input: CreateSessionPointsInput!) {
-  createSessionPoints(input: $input) {
-    id
-    givenById
-    updatedById
-    updatedAt
-    total
+mutation SaveReport($input: SaveSessionReportInput!) {
+  saveSessionReport(input: $input) {
+    sentAt
+    feedback {
+      id
+      text
+      sentAt
+      updatedById
+    }
+    points {
+      id
+      total
+      sentAt
+      givenById
+      updatedById
+    }
   }
 }
 
-mutation UpdatePoints($id: UUID!, $input: UpdateSessionPointsInput!) {
-  updateSessionPoints(id: $id, input: $input) {
-    id
-    givenById
-    updatedById
-    updatedAt
-    total
+mutation SendReport($sessionId: UUID!, $studentId: Int!) {
+  sendSessionReport(sessionId: $sessionId, studentId: $studentId) {
+    sentAt
+    feedback {
+      id
+      sentAt
+    }
+    points {
+      id
+      total
+      sentAt
+    }
   }
 }
 ```
 
-As coach, run `CreatePoints` with these variables.
+As coach, run `SaveReport` for A in the empty Today session:
 
 ```json
 {
   "input": {
-    "studentId": 900002,
-    "sessionId": "10000000-0000-4000-8000-000000000001",
-    "categories": {
+    "sessionId": "10000000-0000-4000-8000-000000000005",
+    "studentId": 900001,
+    "text": "  Local report check  ",
+    "points": {
       "attendance": 1,
-      "punctuality": 0,
+      "punctuality": 1,
       "teamwork": 0,
       "focus": 0,
       "discipline": 0,
@@ -692,17 +606,38 @@ As coach, run `CreatePoints` with these variables.
 }
 ```
 
-1. Expect a 1-point row with the coach as giver and updater. Use `allStudents { membershipId points }`
-   as admin or coach to verify the 1-point profile total. Repeat the create and expect `BAD_USER_INPUT`
-   with the same total.
-2. As volunteer, run `UpdatePoints` with the returned `id` and only `categories` inside `input`.
-   Keep attendance at `1` and set teamwork to `1`. Expect the same row ID and giver, the volunteer
-   as updater, a later `updatedAt`, and a total of 2. Set both scores to `0` to check that the total
-   decreases to 0. A category set to `2` returns `BAD_USER_INPUT` without changing the total.
-3. Repeat the create and edit for `900002` in Day 7 to check that coaches and volunteers can still
-   write. For Day 8 and Future, first try creating as coach or volunteer and expect `FORBIDDEN`.
-   Create those rows as admin, then verify that coach and volunteer updates are forbidden and admin
-   updates succeed.
-4. Run `--auth-only` and `--auth-only --reset-auth` and confirm the points and totals for the seeded
-   profiles persist. Run the full seed twice and confirm both runs restore the two baseline rows and
-   the 11-point total for `900001`.
+1. Expect feedback with text `Local report check` and a 2-point row, both with `sentAt: null` and
+   the coach as giver and updater. `allStudents { membershipId points }` still shows 11 for A, and
+   A's parent doesn't see the session in `studentFeedback` or `myPoints`.
+2. As volunteer, save again with `text` set to `""` and teamwork set to `1`. Expect the same
+   feedback and points IDs, empty text, a total of 3, and the volunteer as updater.
+3. Run `SendReport` for the same session and student. The report, feedback, and points get the same
+   `sentAt`, and A's total rises to 14. The parent now sees the points in `myPoints`, but not the
+   feedback, since its message is empty.
+4. Save again with text `Edited after sending` and teamwork `0`. `sentAt` doesn't change, A's total
+   drops to 13 right away, and the parent sees the new text without another send. Sending again
+   returns the original `sentAt` and leaves the total at 13.
+5. Send B's seeded draft (Today, `900002`). Its feedback and 3-point row both get `sentAt`, and B's
+   total goes from 0 to 3.
+
+Check `errors[].extensions.code` for failures:
+
+| Request                                                    | Expected result                 |
+| ---------------------------------------------------------- | ------------------------------- |
+| Either mutation without Authorization                      | `UNAUTHENTICATED`               |
+| Either mutation with a STUDENT token                       | `FORBIDDEN`                     |
+| `sendSessionReport` with nothing saved, such as B in Day 7 | `NOT_FOUND`                     |
+| Absent session UUID or membership ID                       | `NOT_FOUND`                     |
+| A point category set to `2`                                | `BAD_USER_INPUT`, that category |
+| `text` longer than 5,000 characters                        | `BAD_USER_INPUT`, field `text`  |
+| Coach or volunteer saves or sends for Today or Day 7       | Success                         |
+| Coach or volunteer saves or sends for Day 8 or Future      | `FORBIDDEN`                     |
+| Coach or volunteer sends A's already-sent Day 8 report     | Returned unchanged              |
+| Admin saves or sends for Day 8 or Future                   | Success                         |
+
+Enrollment and staff-to-session assignment are still TODOs, so any existing student and session pair
+is accepted, subject to staff authorization and timing rules.
+
+Run `--auth-only` and `--auth-only --reset-auth` and confirm the points and totals for the seeded
+profiles persist. Run the full seed twice and confirm both runs restore the three baseline rows, the
+11-point total for `900001`, and 0 for `900002`.

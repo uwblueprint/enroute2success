@@ -71,6 +71,7 @@ const FEEDBACK_SESSION_IDS = {
   empty: '10000000-0000-4000-8000-000000000005',
 };
 const POINTS_STUDENT_ID = 900001;
+const DRAFT_POINTS_STUDENT_ID = 900002;
 
 const accounts = [
   {
@@ -731,8 +732,9 @@ async function clearSessionPoints(tx: Prisma.TransactionClient): Promise<void> {
   // Block points mutations while accounting for the rows this transaction removes.
   await tx.$executeRaw`LOCK TABLE "session_points" IN EXCLUSIVE MODE`;
 
+  // Draft rows never counted toward Student.points, so only sent rows are subtracted.
   const contributions = new Map<number, number>();
-  for (const row of await tx.sessionPoints.findMany()) {
+  for (const row of await tx.sessionPoints.findMany({ where: { sent_at: { not: null } } })) {
     const contribution = (contributions.get(row.membership_id) ?? 0) + sumSessionPoints(row);
     contributions.set(row.membership_id, contribution);
   }
@@ -750,6 +752,7 @@ async function clearSessionPoints(tx: Prisma.TransactionClient): Promise<void> {
 }
 
 async function seedSessionPoints(tx: Prisma.TransactionClient) {
+  const sentAt = new Date();
   const rows = await tx.sessionPoints.createManyAndReturn({
     data: [
       {
@@ -758,6 +761,7 @@ async function seedSessionPoints(tx: Prisma.TransactionClient) {
         membership_id: POINTS_STUDENT_ID,
         given_by: COACH_ID,
         updated_by: COACH_ID,
+        sent_at: sentAt,
         attendance: 1,
         punctuality: 1,
         teamwork: 1,
@@ -775,15 +779,29 @@ async function seedSessionPoints(tx: Prisma.TransactionClient) {
         membership_id: POINTS_STUDENT_ID,
         given_by: ADMIN_ID,
         updated_by: ADMIN_ID,
+        sent_at: sentAt,
         attendance: 1,
         discipline: 1,
         extra_recognition: 1,
         won_tournament: 1,
       },
+      {
+        // Pairs with B's draft Today feedback so there's an unsent report to send.
+        id: '30000000-0000-4000-8000-000000000003',
+        session_id: FEEDBACK_SESSION_IDS.today,
+        membership_id: DRAFT_POINTS_STUDENT_ID,
+        given_by: ADMIN_ID,
+        updated_by: ADMIN_ID,
+        attendance: 1,
+        punctuality: 1,
+        teamwork: 1,
+      },
     ],
   });
 
-  const points = rows.reduce((total, row) => total + sumSessionPoints(row), 0);
+  const points = rows
+    .filter((row) => row.membership_id === POINTS_STUDENT_ID)
+    .reduce((total, row) => total + sumSessionPoints(row), 0);
   await tx.student.update({
     where: { membership_id: POINTS_STUDENT_ID },
     data: { points },
@@ -825,7 +843,7 @@ async function main(): Promise<void> {
     '✅ Feedback fixtures ready: multi-parent students 900001/900002, 5 sessions, and 5 feedback entries (1 unsent draft).'
   );
   console.log(
-    `✅ Session points fixtures ready: student ${POINTS_STUDENT_ID}, ${rowCount} rows, and ${points} points.`
+    `✅ Session points fixtures ready: ${rowCount} rows (1 unsent draft for ${DRAFT_POINTS_STUDENT_ID}), and ${points} points for ${POINTS_STUDENT_ID}.`
   );
 }
 

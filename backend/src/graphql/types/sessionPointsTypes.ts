@@ -1,4 +1,5 @@
 export const sessionPointsTypeDefs = `#graphql
+  "Written with saveSessionReport and sent with sendSessionReport. Each category is 0 or 1."
   type SessionPoints {
     id: ID!
     sessionId: ID!
@@ -16,6 +17,8 @@ export const sessionPointsTypeDefs = `#graphql
     attendedWorkshop: Int!
     wonTournament: Int!
     total: Int!
+    "ISO 8601. Null while the points are a draft that students and parents can't see, and that doesn't count toward the student's total."
+    sentAt: String
     "ISO 8601"
     createdAt: String!
     "ISO 8601"
@@ -35,16 +38,6 @@ export const sessionPointsTypeDefs = `#graphql
     wonTournament: Int!
   }
 
-  input CreateSessionPointsInput {
-    studentId: Int!
-    sessionId: UUID!
-    categories: SessionPointsCategoriesInput!
-  }
-
-  input UpdateSessionPointsInput {
-    categories: SessionPointsCategoriesInput!
-  }
-
   extend type Query {
     "All points rows for a session in creation order. Staff only."
     sessionPointsForSession(sessionId: UUID!): [SessionPoints!]!
@@ -52,18 +45,10 @@ export const sessionPointsTypeDefs = `#graphql
     "Points for one student in a session, or null if no row exists. Returns NOT_FOUND if the session or student does not exist. Staff only."
     studentSessionPoints(studentId: Int!, sessionId: UUID!): SessionPoints
 
-    "All points rows for the active student, newest session first. Students and parents only."
+    "Sent points for the active student, newest session first. Students and parents only."
     myPoints: [SessionPoints!]!
 
-    "Points for the active student in a session, or null if no row exists. Students and parents only."
+    "Sent points for the active student in a session, or null if there are none. Returns NOT_FOUND for draft sessions. Students and parents only."
     mySessionPoints(sessionId: UUID!): SessionPoints
-  }
-
-  extend type Mutation {
-    "Record points for a student in a session. Staff only."
-    createSessionPoints(input: CreateSessionPointsInput!): SessionPoints!
-
-    "Update the points recorded for a student in a session. Staff only."
-    updateSessionPoints(id: UUID!, input: UpdateSessionPointsInput!): SessionPoints!
   }
 `;

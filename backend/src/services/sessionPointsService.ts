@@ -1,6 +1,4 @@
-import { Prisma, Role } from '../../generated/client';
 import type { PrismaClient, SessionPoints } from '../../generated/client';
-import { isWithinSessionEditWindow } from '../utils/datetime';
 
 type SessionPointScores = Pick<
   SessionPoints,
@@ -25,18 +23,7 @@ export type SessionPointsCategories = Omit<
   wonTournament: number;
 };
 
-export type CreateSessionPointsInput = SessionPointsCategories & {
-  membershipId: number;
-  sessionId: string;
-  givenBy: string;
-};
-
-export type UpdateSessionPointsInput = SessionPointsCategories & {
-  id: string;
-  updatedBy: string;
-};
-
-function toSessionPointScores(categories: SessionPointsCategories): SessionPointScores {
+export function toSessionPointScores(categories: SessionPointsCategories): SessionPointScores {
   return {
     attendance: categories.attendance,
     punctuality: categories.punctuality,
@@ -80,41 +67,10 @@ export class StudentNotFoundError extends Error {
   }
 }
 
-export class SessionPointsNotFoundError extends Error {
-  constructor() {
-    super('Session points not found');
-    this.name = 'SessionPointsNotFoundError';
-  }
-}
-
-export class SessionPointsAlreadyExistsError extends Error {
-  constructor() {
-    super(
-      'Points already exist for this student and session. Use updateSessionPoints to edit them.'
-    );
-    this.name = 'SessionPointsAlreadyExistsError';
-  }
-}
-
-export class SessionPointsEditWindowError extends Error {
-  constructor() {
-    super(
-      'Session points can only be created or edited from the session date through the seventh calendar day afterward'
-    );
-    this.name = 'SessionPointsEditWindowError';
-  }
-}
-
-function assertSessionPointsEditWindow(role: Role, sessionStart: Date): void {
-  if (role !== Role.ADMIN && !isWithinSessionEditWindow(sessionStart)) {
-    throw new SessionPointsEditWindowError();
-  }
-}
-
 async function requireSession(prisma: PrismaClient, sessionId: string) {
   const session = await prisma.session.findUnique({
     where: { id: sessionId },
-    select: { start_datetime: true },
+    select: { status: true },
   });
 
   if (!session) {
@@ -153,7 +109,11 @@ export async function listStudentPoints(
   activeStudentId: number
 ): Promise<SessionPoints[]> {
   return prisma.sessionPoints.findMany({
-    where: { membership_id: activeStudentId },
+    where: {
+      membership_id: activeStudentId,
+      sent_at: { not: null },
+      session: { status: { not: 'draft' } },
+    },
     orderBy: { session: { start_datetime: 'desc' } },
   });
 }
@@ -163,108 +123,13 @@ export async function getMySessionPoints(
   activeStudentId: number,
   sessionId: string
 ): Promise<SessionPoints | null> {
-  await requireSession(prisma, sessionId);
-
-  return getStudentSessionPoints(prisma, activeStudentId, sessionId);
-}
-
-export async function createSessionPoints(
-  prisma: PrismaClient,
-  input: CreateSessionPointsInput,
-  role: Role
-): Promise<SessionPoints> {
-  const { membershipId, sessionId, givenBy } = input;
   const session = await requireSession(prisma, sessionId);
-  const student = await prisma.student.findUnique({
-    where: { membership_id: membershipId },
-    select: { membership_id: true },
-  });
 
-  if (!student) {
-    throw new StudentNotFoundError();
+  if (session.status === 'draft') {
+    throw new SessionNotFoundError();
   }
 
-  assertSessionPointsEditWindow(role, session.start_datetime);
+  const points = await getStudentSessionPoints(prisma, activeStudentId, sessionId);
 
-  // TODO: Validate student enrollment once the attendance table exists.
-
-  try {
-    return await prisma.$transaction(async (tx) => {
-      const created = await tx.sessionPoints.create({
-        data: {
-          membership_id: membershipId,
-          session_id: sessionId,
-          given_by: givenBy,
-          updated_by: givenBy,
-          ...toSessionPointScores(input),
-        },
-      });
-
-      await tx.student.update({
-        where: { membership_id: membershipId },
-        data: { points: { increment: sumSessionPoints(created) } },
-      });
-
-      return created;
-    });
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      // The PostgreSQL adapter reports the violated index in the underlying error.
-      const adapterError = error.meta?.driverAdapterError as
-        { cause?: { constraint?: { index?: string } } } | undefined;
-
-      if (
-        adapterError?.cause?.constraint?.index === 'session_points_session_id_membership_id_key'
-      ) {
-        throw new SessionPointsAlreadyExistsError();
-      }
-    }
-
-    throw error;
-  }
-}
-
-export async function updateSessionPoints(
-  prisma: PrismaClient,
-  input: UpdateSessionPointsInput,
-  role: Role
-): Promise<SessionPoints> {
-  const { id, updatedBy } = input;
-  const scores = toSessionPointScores(input);
-
-  return prisma.$transaction(
-    async (tx) => {
-      const locked = await tx.$queryRaw<{ id: string }[]>`
-        SELECT "id" FROM "session_points"
-        WHERE "id" = ${id}::uuid
-        FOR UPDATE
-      `;
-
-      if (locked.length === 0) {
-        throw new SessionPointsNotFoundError();
-      }
-
-      // Read the scores after any earlier edit has committed and released the lock.
-      const current = await tx.sessionPoints.findUniqueOrThrow({
-        where: { id },
-        include: { session: { select: { start_datetime: true } } },
-      });
-
-      assertSessionPointsEditWindow(role, current.session.start_datetime);
-
-      const delta = sumSessionPoints(scores) - sumSessionPoints(current);
-      const updated = await tx.sessionPoints.update({
-        where: { id },
-        data: { ...scores, updated_by: updatedBy },
-      });
-
-      await tx.student.update({
-        where: { membership_id: current.membership_id },
-        data: { points: { increment: delta } },
-      });
-
-      return updated;
-    },
-    { isolationLevel: 'ReadCommitted' }
-  );
+  return points?.sent_at ? points : null;
 }
