@@ -206,7 +206,7 @@ async function seedAuthFixtures(resetAuth: boolean): Promise<void> {
           if (resetAuth) {
             await tx.user.update({
               where: { id: account.id },
-              data: { password_hash: account.passwordHash },
+              data: { password_hash: account.passwordHash, deactivated_at: null },
             });
             await tx.refresh_tokens.deleteMany({ where: { user_id: account.id } });
             resetAccountCount += 1;

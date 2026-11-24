@@ -1,12 +1,14 @@
 import { makeExecutableSchema } from '@graphql-tools/schema';
 import { UUIDResolver } from 'graphql-scalars';
 import type { GraphQLContext } from './context';
+import { adminResolvers } from './resolvers/adminResolvers';
 import { announcementResolvers } from './resolvers/announcementResolvers';
 import { feedbackResolvers } from './resolvers/feedbackResolvers';
 import { sessionPointsResolvers } from './resolvers/sessionPointsResolvers';
 import { sessionReportResolvers } from './resolvers/sessionReportResolvers';
 import { sessionResolvers } from './resolvers/sessionResolvers';
 import { userResolvers } from './resolvers/userResolvers';
+import { adminTypeDefs } from './types/adminTypes';
 import { announcementTypeDefs } from './types/announcementTypes';
 import { feedbackTypeDefs } from './types/feedbackTypes';
 import { fileTypeDefs } from './types/fileTypes';
@@ -65,6 +67,7 @@ export const schema = makeExecutableSchema<GraphQLContext>({
     fileTypeDefs,
     sessionPointsTypeDefs,
     sessionReportTypeDefs,
+    adminTypeDefs,
   ],
   resolvers: [
     baseResolvers,
@@ -74,5 +77,6 @@ export const schema = makeExecutableSchema<GraphQLContext>({
     feedbackResolvers,
     sessionPointsResolvers,
     sessionReportResolvers,
+    adminResolvers,
   ],
 });

@@ -26,6 +26,10 @@ export const userTypeDefs = `#graphql
     phoneNumber: String!
     role: Role!
     students: [Student!]!
+    "ISO 8601. Null unless an admin has deactivated the account."
+    deactivatedAt: String
+    "ISO 8601"
+    createdAt: String!
   }
 
   input StudentInput {
@@ -82,15 +86,6 @@ export const userTypeDefs = `#graphql
     refreshAccessToken: AuthPayload!
 
     logout: Boolean!
-
-    createStaffAccount(
-      firstName: String!
-      lastName: String!
-      email: String!
-      phoneNumber: String!
-      password: String!
-      role: Role!
-    ): User!
 
     adminSetPassword(
       userId: UUID!

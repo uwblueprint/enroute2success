@@ -3,10 +3,10 @@ import { Role as PrismaRole } from '../../../generated/client';
 import type { Student } from '../../../generated/client';
 import type { GraphQLContext } from '../context';
 import {
+  AccountDeactivatedError,
   AccountNotFoundError,
   completeAccountSetup,
   createManagedStudent,
-  createStaffAccount,
   EmailInUseError,
   InvalidAccountSetupTokenError,
   InvalidLoginInputError,
@@ -25,7 +25,6 @@ import {
 } from '../../services/userService';
 import type {
   CompleteAccountSetupInput,
-  CreateStaffAccountInput,
   LoginInput,
   StudentInput,
   UserWithStaff,
@@ -33,7 +32,6 @@ import type {
 import { requireRole } from '../../utils/auth';
 import { clearRefreshTokenCookie, setRefreshTokenCookie } from '../../utils/refreshTokenCookies';
 import {
-  badUserInput,
   validateEmail,
   validateLoginPassword,
   validatePassword,
@@ -48,6 +46,10 @@ function toLoginError(error: unknown, identifierField: 'email' | 'membershipId')
     return new GraphQLError(error.message, {
       extensions: { code: 'ACCOUNT_NOT_FOUND', field: identifierField },
     });
+  }
+
+  if (error instanceof AccountDeactivatedError) {
+    return new GraphQLError(error.message, { extensions: { code: 'ACCOUNT_DEACTIVATED' } });
   }
 
   if (error instanceof IncorrectPasswordError) {
@@ -82,6 +84,10 @@ export const userResolvers = {
     phoneNumber: (user: UserWithStaff) => user.phone_number,
 
     role: (user: UserWithStaff) => user.staff?.role ?? PrismaRole.STUDENT,
+
+    deactivatedAt: (user: UserWithStaff) => user.deactivated_at?.toISOString() ?? null,
+
+    createdAt: (user: UserWithStaff) => user.created_at.toISOString(),
 
     students: async (user: UserWithStaff, _args: unknown, ctx: GraphQLContext) => {
       const caller = requireRole(ctx.auth, [
@@ -369,39 +375,6 @@ export const userResolvers = {
       }
 
       return true;
-    },
-
-    createStaffAccount: async (
-      _parent: unknown,
-      args: CreateStaffAccountInput,
-      ctx: GraphQLContext
-    ) => {
-      requireRole(ctx.auth, [PrismaRole.ADMIN]);
-
-      if (args.role === PrismaRole.STUDENT) {
-        throw badUserInput('Staff accounts require an ADMIN, COACH, or VOLUNTEER role', 'role');
-      }
-
-      const input: CreateStaffAccountInput = {
-        firstName: validatePersonName(args.firstName, 'firstName'),
-        lastName: validatePersonName(args.lastName, 'lastName'),
-        email: validateEmail(args.email),
-        phoneNumber: validatePhone(args.phoneNumber),
-        password: validatePassword(args.password),
-        role: args.role,
-      };
-
-      try {
-        return await createStaffAccount(ctx.prisma, input);
-      } catch (error) {
-        if (error instanceof EmailInUseError) {
-          throw new GraphQLError('Email is already in use', {
-            extensions: { code: 'BAD_USER_INPUT', field: 'email' },
-          });
-        }
-
-        throw error;
-      }
     },
 
     adminSetPassword: async (

@@ -92,7 +92,22 @@ separate from session reports (its own reads and writes).
       points were awarded" but shows "Total 7 of 10 points", and the attendance text says "Staff
       marked Jordan as present."
 
+## Admin
+
+- [ ] **Send invite emails instead of admin-set passwords.** `createUser` has the admin type the
+      first password. Once the reset-password ticket lands, send new accounts a set-password link
+      instead (an invite is a reset link for a new account), and make `password` optional or remove it.
+- [ ] **Admin screens aren't designed yet.** The Admin page in Figma is empty. Revisit these
+      endpoints once it's designed, e.g. editing users and roles, or moving students between accounts.
+
 ## Done
+
+- [x] **Admin user management.** `users` (filter by role, hides deactivated users by default),
+      `createUser` (any role; replaces `createStaffAccount`), and `deactivateUser` / `reactivateUser`.
+      Users are deactivated instead of deleted, because their feedback, points and files keep
+      pointing at them. Deactivated users can't log in (`ACCOUNT_DEACTIVATED`), their sessions end
+      right away, and their students stay linked. Admins can't deactivate themselves or the last
+      active admin.
 
 - [x] **Save and send feedback and points together.** `saveSessionReport` creates or updates a
       student's feedback and points for a session in one transaction, and `sendSessionReport` sends

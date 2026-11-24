@@ -34,8 +34,8 @@ To restore fixture passwords and repeat signup, run:
 docker compose exec backend npm run db:seed -- --auth-only --reset-auth
 ```
 
-`--reset-auth` restores all seven seeded account passwords to `DevOnly!12345`, clears their refresh
-sessions, restores the four seeded student assignments, and replaces setup tokens for the three
+`--reset-auth` restores all seven seeded account passwords to `DevOnly!12345`, reactivates them,
+clears their refresh sessions, restores the four seeded student assignments, and replaces setup tokens for the three
 setup fixture emails. It removes the completed `setup.new@e2s.test` signup and its student profiles,
 including any points attached to those profiles. Pair `--reset-auth` with `--auth-only` to keep the
 calendar fixtures, feedback, and points for the four seeded students. The reset rolls back if the
@@ -211,7 +211,7 @@ logout. If your client handles cookies manually, copy the cookie value from `Set
 | Setup request            | `requestAccountSetup` with an unused email returns `true`. A seeded email gives `BAD_USER_INPUT` on `email`.                                                                              |
 | New account completion   | Use the printed new-signup token with valid owner details, password, and student profile. Expect a new account and a selected student with a generated ID.                                |
 | Setup replay/expiry      | Reuse a successful token, or submit either printed expired/used token: expect `BAD_USER_INPUT` on `token`.                                                                                |
-| Admin permissions        | `createStaffAccount` and `adminSetPassword` succeed only as admin. Coach/volunteer/student callers get `FORBIDDEN`. Creating staff with role `STUDENT` returns `BAD_USER_INPUT`.          |
+| Admin permissions        | `createUser`, `users`, `deactivateUser`, `reactivateUser` and `adminSetPassword` succeed only as admin. Coach/volunteer/student callers get `FORBIDDEN`.                                  |
 
 For example, new-account completion variables are:
 
@@ -224,10 +224,80 @@ For example, new-account completion variables are:
 ```
 
 Run password-changing checks last. `adminSetPassword` can target the nonstaff fixture User
-`00000000-0000-4000-8000-000000000004`. Test `createStaffAccount` with a separate synthetic email, such as
+`00000000-0000-4000-8000-000000000004`. Test `createUser` with a separate synthetic email, such as
 `created.staff@e2s.test`. Repeating that email returns `BAD_USER_INPUT`. Creating profiles changes
 the expected student counts. Use the `setup.new@e2s.test` account to test creating extra profiles if
 you want `--reset-auth` to remove them on the next run.
+
+## Admin user checks
+
+Log in as admin. Deactivation changes who can log in, so use accounts you create here rather than the
+seeded fixtures.
+
+```graphql
+query Users($role: Role, $includeDeactivated: Boolean) {
+  users(role: $role, includeDeactivated: $includeDeactivated) {
+    id
+    firstName
+    lastName
+    role
+    deactivatedAt
+    students {
+      membershipId
+    }
+  }
+}
+
+mutation CreateUser(
+  $firstName: String!
+  $lastName: String!
+  $email: String!
+  $phoneNumber: String!
+  $password: String!
+  $role: Role!
+) {
+  createUser(
+    firstName: $firstName
+    lastName: $lastName
+    email: $email
+    phoneNumber: $phoneNumber
+    password: $password
+    role: $role
+  ) {
+    id
+    role
+  }
+}
+
+mutation Deactivate($userId: UUID!) {
+  deactivateUser(userId: $userId) {
+    id
+    deactivatedAt
+  }
+}
+
+mutation Reactivate($userId: UUID!) {
+  reactivateUser(userId: $userId) {
+    id
+    deactivatedAt
+  }
+}
+```
+
+1. `users` lists everyone sorted by last name. `role: STUDENT` returns only parent/student accounts,
+   and `role: COACH` only coaches.
+2. Create a volunteer (`created.volunteer@e2s.test`) and a parent/student account
+   (`created.parent@e2s.test`, role `STUDENT`) with password `DevOnly!12345`. The volunteer can log
+   in with `loginStaff`, and the parent with `loginStudent` and no students.
+3. Log in as the new volunteer, keep its access token, then deactivate it as admin. The volunteer's
+   saved access token now gets `UNAUTHENTICATED`, `loginStaff` returns `ACCOUNT_DEACTIVATED` (or
+   `INCORRECT_PASSWORD` with a wrong password), and refreshing with its cookie fails. It's missing
+   from `users` unless `includeDeactivated` is `true`. Deactivating it again returns the original
+   `deactivatedAt`.
+4. Reactivate it. `deactivatedAt` is `null` and the volunteer can log in again.
+5. Deactivating your own account returns `CANNOT_DEACTIVATE_SELF`. Deactivating the only active
+   admin returns `LAST_ADMIN`. To check this, create a second admin, log in as it, and try to
+   deactivate the seeded admin after deactivating any others. An unknown user ID returns `NOT_FOUND`.
 
 ## Student/parent account setup
 
