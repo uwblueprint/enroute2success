@@ -37,7 +37,11 @@ export const sessionPointsTypeDefs = `#graphql
 
   input CreateSessionPointsInput {
     studentId: Int!
-    sessionId: ID!
+    sessionId: UUID!
+    categories: SessionPointsCategoriesInput!
+  }
+
+  input UpdateSessionPointsInput {
     categories: SessionPointsCategoriesInput!
   }
 
@@ -58,5 +62,8 @@ export const sessionPointsTypeDefs = `#graphql
   extend type Mutation {
     "Record points for a student in a session. Staff only."
     createSessionPoints(input: CreateSessionPointsInput!): SessionPoints!
+
+    "Update the points recorded for a student in a session. Staff only."
+    updateSessionPoints(id: UUID!, input: UpdateSessionPointsInput!): SessionPoints!
   }
 `;
