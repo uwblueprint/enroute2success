@@ -360,9 +360,9 @@ accounts return `FORBIDDEN`. No new migration is needed for this mutation.
 Run a full seed to prepare the feedback fixtures. Students **A (`900001`)** and **B (`900002`)** are
 the multi-parent account's students (`parent.multi@e2s.test`), created by the auth fixtures.
 
-The feedback sessions use fixed UUIDs and dates relative to the day you seed in `America/Toronto`,
+The feedback sessions use fixed UUIDs and dates relative to the day you seed in `ORG_TIMEZONE`,
 including daylight saving. They start at local midnight and end at the next local midnight. Reseed if
-the Toronto calendar date changes before your timing checks.
+the local calendar date changes before your timing checks.
 
 | Session       | UUID                                   | Date at seeding              |
 | ------------- | -------------------------------------- | ---------------------------- |
