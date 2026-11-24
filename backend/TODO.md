@@ -39,41 +39,15 @@ they merge.
 
 Design: one page per session where a coach goes student by student, writes a message, adds
 attachments, ticks point criteria, then either **Save changes** (draft) or **Send Points & Feedback**
-(visible to the student and parents). Points are in the open stack #60–#66; issues already raised in
-review there (redundant `session_id` index, `ID` vs `UUID` args, null vs `NOT_FOUND` consistency,
-0–1 score limit) are not repeated here.
+(visible to the student and parents).
 
-- [ ] **Draft vs. sent state for points.** Feedback has this now (see **Done**). `SessionPoints` still
-      needs the same `sent_at`: students currently see points as soon as they're created, even for
-      draft sessions, since `myPoints` / `mySessionPoints` don't filter those out like the feedback
-      queries do. Once sent, edits should be visible as soon as they're saved, without changing
-      `sent_at`.
-- [ ] **Only count sent points in `Student.points`.** The stack increments `Student.points` on
-      `createSessionPoints` / `updateSessionPoints`, so draft points would show up in a student's
-      total. Move the increment to the send step (and adjust it on edits to sent points).
-- [ ] **Merge feedback and points mutations into `saveSessionReport` / `sendSessionReport`.**
-      _Blocked: do after the points stack (#60–#66) merges._
-      The page saves and sends the message, points and attachments together, but the API has separate
-      create/update mutations for each, so the frontend has to know which rows exist and a failed
-      second request leaves a half-save.
-  - `saveSessionReport(sessionId, studentId, text, points, attachments)`: creates or updates the
-    feedback and points (as drafts if not yet sent) in one transaction.
-  - `sendSessionReport(sessionId, studentId)`: sets `sent_at` on both in one transaction, and adds the
-    points to `Student.points` (see the points total item above).
-  - Remove `createFeedback`, `updateFeedback`, `sendFeedback`, `createSessionPoints` and
-    `updateSessionPoints`. Keep the read queries.
-  - Make the stack's `sessionPointsService` functions accept a transaction client instead of the
-    global `prisma` so they can run in the same transaction as feedback.
-  - Open question: can a coach send points with an empty message? (`validateText` currently rejects
-    empty feedback.)
 - [ ] **Session roster with attendance.** The page lists the session's students (sorted by last name,
       with previous/next navigation) with Present/Absent status and counts, plus a "Feedback not sent"
-      count. There is no enrollment or attendance table yet (see the `TODO`s in `feedbackService` and
-      `sessionPointsService`). Needs something like
+      count. There is no enrollment or attendance table yet (see the `TODO`s in `sessionReportService`). Needs something like
       `sessionRoster(sessionId): [{ student, attendance, feedbackSentAt }]`. Depends on the Attendance
       flow design.
 - [ ] **`editableUntil` on `Session`.** Header shows "Editable until Nov 5". Expose the end of the
-      7-day window from `isWithinSessionEditWindow` (stack #63) so the frontend doesn't redo the
+      7-day window from `isWithinSessionEditWindow` so the frontend doesn't redo the
       timezone math.
 - [ ] **"Live" session status.** Header shows a Live badge; `SessionStatus` only has
       draft/scheduled/cancelled. Either derive it on the frontend from start/end times or add a
@@ -81,15 +55,21 @@ review there (redundant `session_id` index, `ID` vs `UUID` args, null vs `NOT_FO
 - [ ] **Feedback attachments (files team).** Coaches attach uploaded files (e.g. a 112 MB `.mp4`) and
       web links to a student's feedback. `File` has no link to feedback/session, and there's no link
       attachment type. Needs a feedback ↔ attachment relation (file or URL) and to follow the
-      draft/sent visibility rules.
+      draft/sent visibility rules. Attachments should be saved through `saveSessionReport` so the
+      whole report still saves in one transaction.
 - [ ] **Student avatar.** Design shows a profile picture per student; `Student` has no image field.
       Low priority (placeholder works).
 
 ## Done
 
-- [x] **Draft vs. sent feedback.** `Feedback` has a nullable `sent_at` (exposed as `sentAt`) and a
-      `sendFeedback(id)` mutation. Students and parents only see sent feedback; edits after sending
-      are visible right away and keep the original `sent_at`.
+- [x] **Save and send feedback and points together.** `saveSessionReport` creates or updates a
+      student's feedback and points for a session in one transaction, and `sendSessionReport` sends
+      both. They replace `createFeedback`, `updateFeedback`, `sendFeedback`, `createSessionPoints` and
+      `updateSessionPoints`. Coaches can send with an empty message; students and parents don't see
+      empty feedback.
+- [x] **Draft vs. sent feedback and points.** `Feedback` and `SessionPoints` have a nullable `sent_at`
+      (exposed as `sentAt`). Students and parents only see sent rows, and only sent points count toward
+      `Student.points`. Edits after sending are visible right away and keep the original `sent_at`.
 
 - [x] **Field-specific login errors.** `loginStaff` and `loginStudent` now return
       `ACCOUNT_NOT_FOUND` (`field`: `email` or `membershipId`) or `INCORRECT_PASSWORD`
