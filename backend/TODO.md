@@ -60,6 +60,38 @@ attachments, ticks point criteria, then either **Save changes** (draft) or **Sen
 - [ ] **Student avatar.** Design shows a profile picture per student; `Student` has no image field.
       Low priority (placeholder works).
 
+## Session history (student / parent side)
+
+Design: a list of the student's past sessions with attendance status and an "Unread updates" badge,
+and a detail page per session showing feedback, homework, attendance and points. Homework stays
+separate from session reports (its own reads and writes).
+
+- [ ] **Merge feedback and points reads.** _Deferred: revisit later._ The detail page always reads
+      feedback and points together, and the reads check access differently: feedback reads take a
+      `studentId` plus a "manages this student" check, while `myPoints` / `mySessionPoints` use the
+      active student, so a parent can read any child's feedback but only the active child's points.
+      Proposed: replace `studentSessionFeedback` and `mySessionPoints` with
+      `sessionReport(sessionId, studentId): SessionReport`, and `sessionFeedback` and
+      `sessionPointsForSession` with `sessionReports(sessionId)` for staff, using one access rule
+      (`studentId` + manages check). Decide on `studentFeedback` / `myPoints` after seeing the
+      "Feedback & Homework" and "Points & Rewards" list pages.
+- [ ] **Session history list.** Needs the sessions a student registered for, which depends on the
+      registration/attendance table (same blocker as the coach roster). Also needs the
+      "Only show sessions attended" filter.
+- [ ] **Attendance states.** Present, Absent, Cancelled and "Attendance not recorded". Here
+      "Cancelled" means the student cancelled their registration, which is different from
+      `session_status: cancelled`.
+- [ ] **"Unread updates" badge.** Needs per-user read tracking (e.g. a `seen_at` per report), which
+      doesn't exist.
+- [ ] **Feedback author name.** The detail page shows "From [Coach name]", but `Feedback` only exposes
+      `giverId` and students can't look up staff. Add a `giver { firstName lastName }` field.
+- [ ] **Session type.** The list shows a golf/chess/workshop icon, but `session_type` isn't exposed
+      on `Session` and the enum has no workshop value.
+- [ ] **Homework.** Doesn't exist yet. Separate reads and writes from session reports.
+- [ ] **Design copy bugs (tell the designer).** On the "Absent" screen the points card says "No
+      points were awarded" but shows "Total 7 of 10 points", and the attendance text says "Staff
+      marked Jordan as present."
+
 ## Done
 
 - [x] **Save and send feedback and points together.** `saveSessionReport` creates or updates a
