@@ -3,6 +3,7 @@ import { UUIDResolver } from 'graphql-scalars';
 import type { GraphQLContext } from './context';
 import { announcementResolvers } from './resolvers/announcementResolvers';
 import { feedbackResolvers } from './resolvers/feedbackResolvers';
+import { fileResolvers } from './resolvers/fileResolvers';
 import { sessionResolvers } from './resolvers/sessionResolvers';
 import { userResolvers } from './resolvers/userResolvers';
 import { announcementTypeDefs } from './types/announcementTypes';
@@ -66,5 +67,6 @@ export const schema = makeExecutableSchema<GraphQLContext>({
     sessionResolvers,
     announcementResolvers,
     feedbackResolvers,
+    fileResolvers,
   ],
 });
