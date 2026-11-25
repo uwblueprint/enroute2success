@@ -14,9 +14,17 @@ export const fileTypeDefs = `#graphql
     downloadUrl: String    # signed, short-lived; only resolved when requested
   }
 
+  type FileUploadField {
+    name: String!
+    value: String!
+  }
+
+  # Send an HTTP POST (multipart/form-data) to uploadUrl with every uploadFields entry as a form
+  # field, in order, then the file itself as the last field, named "file". Then call confirmFileUpload.
   type FileUploadTarget {
     fileId: ID!
     uploadUrl: String!     # presigned, short-lived
+    uploadFields: [FileUploadField!]!
     expiresAt: String!
   }
 
