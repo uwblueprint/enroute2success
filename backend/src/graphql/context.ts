@@ -17,7 +17,19 @@ export async function createContext({
   res,
 }: ExpressContextFunctionArgument): Promise<GraphQLContext> {
   const token = req.headers.authorization?.match(/^Bearer +(\S+)$/i)?.[1];
-  const auth = token ? verifyAccessToken(token) : null;
+  let auth = token ? verifyAccessToken(token) : null;
+
+  // Access tokens last 15 minutes, so check the database to make deactivation take effect now.
+  if (auth) {
+    const user = await prisma.user.findUnique({
+      where: { id: auth.userId },
+      select: { deactivated_at: true },
+    });
+
+    if (!user || user.deactivated_at) {
+      auth = null;
+    }
+  }
 
   return { prisma, req, res, auth };
 }

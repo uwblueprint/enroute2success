@@ -40,15 +40,6 @@ export type LoginInput = {
   password: string;
 };
 
-export type CreateStaffAccountInput = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phoneNumber: string;
-  password: string;
-  role: Role;
-};
-
 export type StudentInput = {
   firstName: string;
   lastName: string;
@@ -81,13 +72,6 @@ export class EmailInUseError extends Error {
   }
 }
 
-export class InvalidStaffRoleError extends Error {
-  constructor() {
-    super('Staff accounts require an ADMIN, COACH, or VOLUNTEER role');
-    this.name = 'InvalidStaffRoleError';
-  }
-}
-
 export class InvalidLoginInputError extends Error {
   constructor() {
     super('Provide exactly one of email or membershipId');
@@ -106,6 +90,13 @@ export class IncorrectPasswordError extends Error {
   constructor() {
     super('Password is incorrect');
     this.name = 'IncorrectPasswordError';
+  }
+}
+
+export class AccountDeactivatedError extends Error {
+  constructor() {
+    super('This account has been deactivated');
+    this.name = 'AccountDeactivatedError';
   }
 }
 
@@ -220,6 +211,10 @@ async function loginAccount(
     throw new IncorrectPasswordError();
   }
 
+  if (user.deactivated_at) {
+    throw new AccountDeactivatedError();
+  }
+
   return prisma.$transaction(
     async (tx) => {
       await tx.$queryRaw`
@@ -236,6 +231,7 @@ async function loginAccount(
       if (
         !currentUser ||
         currentUser.password_hash !== user.password_hash ||
+        currentUser.deactivated_at ||
         !matchesLoginPortal(currentUser, portal)
       ) {
         return null;
@@ -556,6 +552,10 @@ export async function rotateRefreshToken(
       }
 
       const { user, active_student_id: activeStudentId } = storedToken;
+
+      if (user.deactivated_at) {
+        return null;
+      }
       let session: AuthSession | null = null;
 
       if (activeStudentId !== null) {
@@ -617,41 +617,6 @@ export async function revokeRefreshToken(prisma: PrismaClient, rawToken: string)
     },
     { isolationLevel: 'ReadCommitted' }
   );
-}
-
-export async function createStaffAccount(
-  prisma: PrismaClient,
-  input: CreateStaffAccountInput
-): Promise<UserWithStaff> {
-  const passwordHash = await hashPassword(input.password);
-
-  try {
-    return await prisma.user.create({
-      data: {
-        id: randomUUID(),
-        first_name: input.firstName,
-        last_name: input.lastName,
-        email: input.email,
-        phone_number: input.phoneNumber,
-        password_hash: passwordHash,
-        staff: { create: { role: input.role } },
-      },
-      include: { staff: true },
-    });
-  } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      const existingUser = await prisma.user.findUnique({
-        where: { email: input.email },
-        select: { id: true },
-      });
-
-      if (existingUser) {
-        throw new EmailInUseError();
-      }
-    }
-
-    throw error;
-  }
 }
 
 // Returns false if the user doesn't exist.
