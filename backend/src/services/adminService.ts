@@ -99,8 +99,6 @@ export async function deactivateUser(
   callerId: string,
   userId: string
 ): Promise<UserWithStaff> {
-  // UUID inputs keep their case, but Postgres matches them case-insensitively, so compare in
-  // lowercase or an uppercased ID would slip past the self and last-admin checks.
   userId = userId.toLowerCase();
 
   if (userId === callerId.toLowerCase()) {
