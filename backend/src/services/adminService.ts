@@ -59,8 +59,6 @@ export async function listUsers(
   });
 }
 
-// Role STUDENT creates a parent/student account (no staff record); its students are added after
-// logging in with createManagedStudent.
 export async function createUser(
   prisma: PrismaClient,
   input: CreateUserInput
@@ -96,7 +94,6 @@ export async function createUser(
   }
 }
 
-// Students stay linked to a deactivated account so that reactivating it restores everything.
 export async function deactivateUser(
   prisma: PrismaClient,
   callerId: string,

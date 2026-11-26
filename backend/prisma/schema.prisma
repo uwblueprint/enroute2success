@@ -87,8 +87,6 @@ model User {
   email          String    @unique
   phone_number   String
   password_hash  String
-  // Accounts are deactivated instead of deleted, because feedback, points and files keep pointing
-  // at the people who wrote them.
   deactivated_at DateTime?
 
   created_at DateTime @default(now())
