@@ -99,21 +99,35 @@ export async function deactivateUser(
   callerId: string,
   userId: string
 ): Promise<UserWithStaff> {
-  if (userId === callerId) {
+  // UUID inputs keep their case, but Postgres matches them case-insensitively, so compare in
+  // lowercase or an uppercased ID would slip past the self and last-admin checks.
+  userId = userId.toLowerCase();
+
+  if (userId === callerId.toLowerCase()) {
     throw new CannotDeactivateSelfError();
   }
 
   return prisma.$transaction(
     async (tx) => {
+      // Staff roles never change, so this can be read before taking any locks.
+      const target = await tx.staffUsers.findUnique({
+        where: { id: userId },
+        select: { role: true },
+      });
+
       // Lock every active admin first, in a fixed order, so two admins deactivating each other at
-      // the same time can't both succeed and leave no admins.
-      const activeAdmins = await tx.$queryRaw<{ id: string }[]>`
-        SELECT u."id" FROM "users" u
-        JOIN "staff_users" s ON s."id" = u."id"
-        WHERE s."type" = 'admin' AND u."deactivated_at" IS NULL
-        ORDER BY u."id"
-        FOR UPDATE OF u
-      `;
+      // the same time can't both succeed and leave no admins. Skipped for non-admins so other
+      // admins' logins don't wait on it.
+      const activeAdmins =
+        target?.role === Role.ADMIN
+          ? await tx.$queryRaw<{ id: string }[]>`
+              SELECT u."id" FROM "users" u
+              JOIN "staff_users" s ON s."id" = u."id"
+              WHERE s."type" = 'admin' AND u."deactivated_at" IS NULL
+              ORDER BY u."id"
+              FOR UPDATE OF u
+            `
+          : [];
 
       // Same lock that login and token refresh take, so they can't hand out a new session while
       // this runs.

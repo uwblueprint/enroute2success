@@ -295,9 +295,10 @@ mutation Reactivate($userId: UUID!) {
    from `users` unless `includeDeactivated` is `true`. Deactivating it again returns the original
    `deactivatedAt`.
 4. Reactivate it. `deactivatedAt` is `null` and the volunteer can log in again.
-5. Deactivating your own account returns `CANNOT_DEACTIVATE_SELF`. Deactivating the only active
-   admin returns `LAST_ADMIN`. To check this, create a second admin, log in as it, and try to
-   deactivate the seeded admin after deactivating any others. An unknown user ID returns `NOT_FOUND`.
+5. Deactivating your own account returns `CANNOT_DEACTIVATE_SELF`, even with the ID in uppercase.
+   An unknown user ID returns `NOT_FOUND`. Since the caller is always an active admin, this check
+   is what keeps at least one admin active. `LAST_ADMIN` is a backstop that a normal call can't
+   reach.
 
 ## Student/parent account setup
 
